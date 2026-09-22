@@ -39,6 +39,10 @@ struct Cli {
     /// Maximum file size in bytes (default: 5000000 = 5MB)
     #[arg(long, default_value_t = App::DEFAULT_MAX_FILE_SIZE)]
     max_file_size: u64,
+
+    /// Maximum render width in columns (default: no limit, wrap to terminal width)
+    #[arg(long, env = "MDT_MAX_WIDTH", value_parser = clap::value_parser!(u16).range(1..))]
+    max_width: Option<u16>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -90,10 +94,12 @@ fn main() -> anyhow::Result<()> {
     {
         let mut app = App::from_stdin(content, bg_color);
         app.max_file_size = cli.max_file_size;
+        app.max_width = cli.max_width.map(usize::from);
         (app, None, None, None, None)
     } else {
         let mut app = App::new(&path, bg_color)?;
         app.max_file_size = cli.max_file_size;
+        app.max_width = cli.max_width.map(usize::from);
 
         // Acquire an advisory lock to prevent concurrent mdt instances on the same directory.
         // The lock lives in the per-user runtime directory, never inside the tree being

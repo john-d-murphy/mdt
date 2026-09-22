@@ -94,7 +94,7 @@ The binary will be at `target/release/mdt`.
 ## Usage
 
 ```
-mdt [path] [--max-file-size <bytes>]
+mdt [path] [--max-file-size <bytes>] [--max-width <columns>]
 ```
 
 Opens the given directory, or opens the given file with the file tree rooted at its directory. Defaults to the current directory if no path is provided.
@@ -102,6 +102,7 @@ Opens the given directory, or opens the given file with the file tree rooted at 
 | Flag | Description |
 |------|-------------|
 | `--max-file-size <bytes>` | Maximum file size to open (default: 5 MB) |
+| `--max-width <columns>` | Maximum render width in columns; also `MDT_MAX_WIDTH` env var (default: terminal width) |
 
 When `mdt` starts, you'll see the welcome screen. Press `Space+e` to open the file tree, navigate to a markdown file, and press `Enter` to preview it.
 

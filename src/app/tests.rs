@@ -435,3 +435,20 @@ fn from_stdin_quit_works() {
     app.handle_event(key_event(KeyCode::Char('q')));
     assert!(app.should_quit);
 }
+
+#[test]
+fn render_width_uncapped_by_default() {
+    let app = App::from_stdin("# Hello".to_string(), Color::Reset);
+    assert_eq!(app.max_width, None);
+    assert_eq!(app.render_width(200), 200);
+}
+
+#[test]
+fn render_width_caps_at_max_width() {
+    let mut app = App::from_stdin("# Hello".to_string(), Color::Reset);
+    app.max_width = Some(100);
+    assert_eq!(app.render_width(200), 100);
+    assert_eq!(app.render_width(100), 100);
+    // Narrower terminals still wrap to the actual available width.
+    assert_eq!(app.render_width(60), 60);
+}

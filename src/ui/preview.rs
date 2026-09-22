@@ -31,21 +31,26 @@ pub fn draw_preview(frame: &mut Frame, app: &mut App, area: Rect) {
     // can resize at any time. Scroll clamping in input handling depends on this value.
     app.document.viewport_height = inner.height as usize;
 
-    // Re-render when viewport width changes (e.g. terminal resize, file tree toggle).
-    let new_width = inner.width as usize;
-    if new_width != app.document.viewport_width && app.document.current_file.is_some() {
-        let (lines, block_line_starts) =
-            rewrap_blocks(&app.document.rendered_blocks, Some(new_width));
-        app.document.rendered_lines = lines;
-        app.document.block_line_starts = block_line_starts;
-        app.document.rebuild_lower_cache();
-        app.document.viewport_width = new_width;
-        app.document.rebuild_heading_index();
-        // Clamp scroll offset after re-render
-        let max_scroll = app.document.rendered_lines.len().saturating_sub(inner.height as usize);
-        if app.document.scroll_offset > max_scroll {
-            app.document.scroll_offset = max_scroll;
+    // Re-render when viewport width changes (e.g. terminal resize, file tree toggle,
+    // or the `--max-width` cap). Keyed on rendered content rather than `current_file`
+    // so piped stdin (which has no file path) re-wraps too.
+    let new_width = app.render_width(inner.width as usize);
+    if new_width != app.document.viewport_width {
+        if !app.document.rendered_blocks.is_empty() {
+            let (lines, block_line_starts) =
+                rewrap_blocks(&app.document.rendered_blocks, Some(new_width));
+            app.document.rendered_lines = lines;
+            app.document.block_line_starts = block_line_starts;
+            app.document.rebuild_lower_cache();
+            app.document.rebuild_heading_index();
+            // Clamp scroll offset after re-render
+            let max_scroll =
+                app.document.rendered_lines.len().saturating_sub(inner.height as usize);
+            if app.document.scroll_offset > max_scroll {
+                app.document.scroll_offset = max_scroll;
+            }
         }
+        app.document.viewport_width = new_width;
     }
 
     if app.document.rendered_lines.is_empty() {
@@ -136,7 +141,7 @@ pub fn draw_live_preview(frame: &mut Frame, app: &mut App, area: Rect) {
     let inner = block.inner(area);
 
     // Re-wrap if viewport width changed.
-    let new_width = inner.width as usize;
+    let new_width = app.render_width(inner.width as usize);
     if new_width != app.live_preview.viewport_width && !app.live_preview.rendered_blocks.is_empty()
     {
         let (lines, block_line_starts) =

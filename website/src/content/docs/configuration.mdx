@@ -8,7 +8,7 @@ mdt is configured through command-line flags and environment variables. There is
 ## Usage
 
 ```bash
-mdt [path] [--max-file-size <bytes>]
+mdt [path] [--max-file-size <bytes>] [--max-width <columns>]
 ```
 
 If no path is given, mdt opens the current directory. You can pass a directory to browse or a specific file to open directly. When given a file, mdt opens it immediately, roots the file tree at the file's directory, and selects the file in the tree.
@@ -36,6 +36,7 @@ In stdin mode, mdt operates in read-only preview mode. The file tree, file finde
 | Flag                      | Description                                   | Default          |
 | ------------------------- | --------------------------------------------- | ---------------- |
 | `--max-file-size <bytes>` | Maximum file size in bytes that mdt will open | 5,242,880 (5 MB) |
+| `--max-width <columns>`   | Maximum width in columns for rendered markdown | none (terminal width) |
 
 For example, to allow opening files up to 10 MB:
 
@@ -43,7 +44,23 @@ For example, to allow opening files up to 10 MB:
 mdt --max-file-size 10485760
 ```
 
+To wrap rendered markdown at 100 columns even on a wide terminal, similar to a `less` max width:
+
+```bash
+mdt --max-width 100
+```
+
+When the terminal (or preview pane) is narrower than the limit, mdt wraps to the actual available width. The limit applies to both the file preview and the live preview pane.
+
 ## Environment variables
+
+### `MDT_MAX_WIDTH`
+
+Sets the default for `--max-width`. The flag takes precedence when both are given.
+
+```bash
+export MDT_MAX_WIDTH=100
+```
 
 ### `NO_COLOR`
 

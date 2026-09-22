@@ -428,3 +428,56 @@ fn file_argument_non_md_file_still_opens() {
     let text = render(&mut terminal, &mut app);
     assert!(text.contains("Plain Text"));
 }
+
+// ── --max-width cap ─────────────────────────────────────────────────────
+
+const LOREM: &str =
+    "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor \
+incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation \
+ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit \
+in voluptate velit esse cillum dolore eu fugiat nulla pariatur.";
+
+/// Widest rendered row (trailing spaces trimmed), excluding the status bar.
+fn max_content_row_width(terminal: &Terminal<TestBackend>) -> usize {
+    let buf = terminal.backend().buffer();
+    (0..buf.area.height.saturating_sub(1))
+        .map(|y| {
+            (0..buf.area.width)
+                .filter_map(|x| buf.cell(Position::new(x, y)))
+                .map(ratatui::buffer::Cell::symbol)
+                .collect::<String>()
+                .trim_end()
+                .chars()
+                .count()
+        })
+        .max()
+        .unwrap_or(0)
+}
+
+#[test]
+fn max_width_caps_wrapping_for_file_preview() {
+    let dir = TempTestDir::new("mdt-integ-max-width-file");
+    dir.create_file("lorem.md", &format!("# Title\n\n{LOREM}\n\n- {LOREM}\n"));
+    let mut app = App::new(&dir.path().join("lorem.md"), Color::Reset).unwrap();
+    let mut terminal = Terminal::new(TestBackend::new(200, 30)).unwrap();
+
+    terminal.draw(|f| ui::draw(f, &mut app)).unwrap();
+    assert!(max_content_row_width(&terminal) > 150, "uncapped text should use the full width");
+
+    app.max_width = Some(100);
+    terminal.draw(|f| ui::draw(f, &mut app)).unwrap();
+    // 2 columns of left padding + up to 100 columns of content.
+    assert!(max_content_row_width(&terminal) <= 102);
+    assert_eq!(app.document.viewport_width, 100);
+}
+
+#[test]
+fn max_width_caps_wrapping_for_stdin() {
+    let mut app = App::from_stdin(format!("# Title\n\n{LOREM}\n"), Color::Reset);
+    app.max_width = Some(100);
+    let mut terminal = Terminal::new(TestBackend::new(200, 30)).unwrap();
+
+    terminal.draw(|f| ui::draw(f, &mut app)).unwrap();
+    assert!(max_content_row_width(&terminal) <= 102);
+    assert_eq!(app.document.viewport_width, 100);
+}
