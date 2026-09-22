@@ -382,3 +382,49 @@ fn ctrl_d_u_half_page_scroll() {
     app.handle_event(key_mod(KeyCode::Char('u'), KeyModifiers::CONTROL));
     assert_eq!(app.document.scroll_offset, 0);
 }
+
+// ── Opening a single file from the command line ─────────────────────────
+
+#[test]
+fn file_argument_roots_tree_at_parent_and_opens_file() {
+    let dir = TempTestDir::new("mdt-integ-file-arg");
+    dir.create_file("a.md", "# Alpha");
+    dir.create_file("note.md", "# Note Heading\n\nNote body text.");
+
+    let file_path = dir.path().join("note.md");
+    let mut app = App::new(&file_path, Color::Reset).unwrap();
+
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    assert_eq!(app.root_path, root, "tree should be rooted at the file's directory");
+    assert_eq!(app.document.current_file.as_deref(), Some(root.join("note.md").as_path()));
+    assert_eq!(app.focus, Focus::Preview);
+    assert!(app.tree.path_map.contains_key("a.md"));
+    assert_eq!(app.tree.tree_state.selected(), &["note.md".to_string()]);
+
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+    let text = render(&mut terminal, &mut app);
+    assert!(text.contains("Note Heading"), "preview should show the opened file");
+    assert!(text.contains("Note body text"));
+}
+
+#[test]
+fn file_argument_non_md_file_still_opens() {
+    let dir = TempTestDir::new("mdt-integ-file-arg-txt");
+    dir.create_file("readme.md", "# Readme");
+    dir.create_file("plain.txt", "# Plain Text\n\nNot markdown by extension.");
+
+    let mut app = App::new(&dir.path().join("plain.txt"), Color::Reset).unwrap();
+
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    assert_eq!(app.root_path, root);
+    assert_eq!(app.document.current_file.as_deref(), Some(root.join("plain.txt").as_path()));
+    // The tree filter hides non-.md files, so the first tree item is selected instead.
+    assert!(!app.tree.path_map.contains_key("plain.txt"));
+    assert_eq!(app.tree.tree_state.selected(), &["readme.md".to_string()]);
+
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+    let text = render(&mut terminal, &mut app);
+    assert!(text.contains("Plain Text"));
+}

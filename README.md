@@ -97,7 +97,7 @@ The binary will be at `target/release/mdt`.
 mdt [path] [--max-file-size <bytes>]
 ```
 
-Opens the given directory (or file). Defaults to the current directory if no path is provided.
+Opens the given directory, or opens the given file with the file tree rooted at its directory. Defaults to the current directory if no path is provided.
 
 | Flag | Description |
 |------|-------------|
