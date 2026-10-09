@@ -53,6 +53,8 @@ pub struct App {
     pub(crate) bg_color: ratatui::style::Color,
     pub(crate) root_path: PathBuf,
     pub(crate) max_file_size: u64,
+    /// Maximum render width in columns (`--max-width` / `MDT_MAX_WIDTH`); `None` = no limit.
+    pub(crate) max_width: Option<usize>,
     pub(crate) preview_area: Option<ratatui::layout::Rect>,
     pub(crate) file_list_area: Option<ratatui::layout::Rect>,
     pub(crate) live_preview: LivePreviewState,
@@ -63,12 +65,42 @@ impl App {
     /// Default maximum file size (5 MB).
     pub const DEFAULT_MAX_FILE_SIZE: u64 = 5_000_000;
 
+    /// Wrap width for markdown rendering given the available pane width.
+    ///
+    /// Applies the `--max-width` cap (if set) so long lines wrap at a readable
+    /// column count even on wide terminals, similar to `less`'s max width.
+    pub(crate) fn render_width(&self, available: usize) -> usize {
+        self.max_width.map_or(available, |max| available.min(max))
+    }
+
     /// Create a new `App` rooted at `path`.
+    ///
+    /// If `path` is a file, the tree is rooted at its parent directory and the
+    /// file is opened and selected in the tree (when it appears there).
     pub fn new(path: &Path, bg_color: ratatui::style::Color) -> anyhow::Result<Self> {
-        let (tree_items, path_map) = file_tree::build_tree_items(path)?;
-        let root_path = std::fs::canonicalize(path)?;
+        let canonical = std::fs::canonicalize(path)?;
+        let (root_path, initial_file) = if canonical.is_file() {
+            let parent = canonical
+                .parent()
+                .ok_or_else(|| anyhow::anyhow!("{} has no parent directory", canonical.display()))?
+                .to_path_buf();
+            (parent, Some(canonical))
+        } else {
+            (canonical, None)
+        };
+
+        let (tree_items, path_map) = file_tree::build_tree_items(&root_path)?;
         let mut tree_state = TreeState::default();
-        if let Some(first_item) = tree_items.first() {
+        // Files passed on the command line sit directly under the root, so their
+        // tree identifier is just the file name.
+        let initial_id = initial_file
+            .as_ref()
+            .and_then(|f| f.file_name())
+            .map(|n| n.to_string_lossy().into_owned())
+            .filter(|id| path_map.contains_key(id));
+        if let Some(id) = initial_id {
+            tree_state.select(vec![id]);
+        } else if let Some(first_item) = tree_items.first() {
             tree_state.select(vec![first_item.identifier().clone()]);
         }
 
@@ -77,7 +109,7 @@ impl App {
         // (which forces an immediate re-wrap on the next draw frame).
         let (init_width, init_height) = crossterm::terminal::size().unwrap_or((80, 24));
 
-        Ok(Self {
+        let mut app = Self {
             tree: TreeViewState {
                 tree_state,
                 tree_items,
@@ -115,11 +147,18 @@ impl App {
             bg_color,
             root_path,
             max_file_size: Self::DEFAULT_MAX_FILE_SIZE,
+            max_width: None,
             preview_area: None,
             file_list_area: None,
             live_preview: LivePreviewState::default(),
             stdin_mode: false,
-        })
+        };
+
+        if let Some(file) = initial_file {
+            app.open_file(&file);
+        }
+
+        Ok(app)
     }
 
     /// Create an `App` for piped stdin content (read-only, no file tree).
@@ -173,6 +212,7 @@ impl App {
             bg_color,
             root_path: PathBuf::new(),
             max_file_size: Self::DEFAULT_MAX_FILE_SIZE,
+            max_width: None,
             preview_area: None,
             file_list_area: None,
             live_preview: LivePreviewState::default(),

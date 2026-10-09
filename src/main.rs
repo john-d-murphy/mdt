@@ -12,7 +12,7 @@ mod ui;
 mod watcher;
 
 use std::io::{self, IsTerminal, Read as _};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -39,6 +39,10 @@ struct Cli {
     /// Maximum file size in bytes (default: 5000000 = 5MB)
     #[arg(long, default_value_t = App::DEFAULT_MAX_FILE_SIZE)]
     max_file_size: u64,
+
+    /// Maximum render width in columns (default: no limit, wrap to terminal width)
+    #[arg(long, env = "MDT_MAX_WIDTH", value_parser = clap::value_parser!(u16).range(1..))]
+    max_width: Option<u16>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -90,13 +94,17 @@ fn main() -> anyhow::Result<()> {
     {
         let mut app = App::from_stdin(content, bg_color);
         app.max_file_size = cli.max_file_size;
+        app.max_width = cli.max_width.map(usize::from);
         (app, None, None, None, None)
     } else {
         let mut app = App::new(&path, bg_color)?;
         app.max_file_size = cli.max_file_size;
+        app.max_width = cli.max_width.map(usize::from);
 
         // Acquire an advisory lock to prevent concurrent mdt instances on the same directory.
-        let lock_path = app.root_path.join(".mdt.lock");
+        // The lock lives in the per-user runtime directory, never inside the tree being
+        // viewed, so opening a file never writes anything next to it.
+        let lock_path = lock_path_for(&app.root_path);
         let lock_file =
             std::fs::OpenOptions::new().create(true).write(true).truncate(true).open(&lock_path)?;
         use fs2::FileExt;
@@ -158,6 +166,29 @@ fn main() -> anyhow::Result<()> {
     }
 
     result
+}
+
+/// Location of the advisory lock file for a given canonical root directory.
+///
+/// Locks are kept under `$XDG_RUNTIME_DIR/mdt/` (falling back to the system temp
+/// directory), named by a hash of the root path, so mdt never writes into the
+/// directory it is viewing.
+fn lock_path_for(root: &Path) -> PathBuf {
+    let base = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .filter(|p| p.is_dir())
+        .unwrap_or_else(std::env::temp_dir);
+    let dir = base.join("mdt");
+    // Best effort: if this fails, opening the lock file reports the real error.
+    let _ = std::fs::create_dir_all(&dir);
+
+    // FNV-1a: stable across builds so different mdt versions agree on the path.
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in root.to_string_lossy().bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    dir.join(format!("{hash:016x}.lock"))
 }
 
 /// Dirty-flag event loop.
@@ -227,4 +258,26 @@ fn run_loop(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lock_path_is_outside_the_viewed_tree() {
+        let root = Path::new("/some/project/docs");
+        let lock = lock_path_for(root);
+        assert!(!lock.starts_with(root), "lock must not be written inside the root: {lock:?}");
+        assert_eq!(lock.extension().and_then(|e| e.to_str()), Some("lock"));
+        assert_eq!(lock.parent().and_then(Path::file_name).and_then(|n| n.to_str()), Some("mdt"));
+    }
+
+    #[test]
+    fn lock_path_is_stable_per_root_and_distinct_across_roots() {
+        let a = Path::new("/some/project/docs");
+        let b = Path::new("/some/project/notes");
+        assert_eq!(lock_path_for(a), lock_path_for(a));
+        assert_ne!(lock_path_for(a), lock_path_for(b));
+    }
 }

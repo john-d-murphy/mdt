@@ -1,5 +1,6 @@
 use super::*;
-use ratatui::style::{Color, Modifier};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span, Text};
 use test_helpers::*;
 
 #[test]
@@ -534,4 +535,164 @@ fn example() { let very_long_variable_name = \"some value\"; }
 
     // 8. Heading text present
     assert!(joined.contains("Heading"), "Heading text missing");
+}
+
+// ── quine link lines ────────────────────────────────────────────────────
+
+const LINKS_PAGE: &str = "\
+## Links out
+
+1. —links-to→ Measuring the room [`meas0` note]  
+   A log sweep, three takes, the door shut.
+2. —links-to→ notes:inbox/never-written.md [dangling]
+3. —informed-by→ The rug [`rug00` note]  
+   *The rug is why I measured again.*  
+   It changed everything.
+4. Just an ordinary item with `code` in it
+
+## Links in
+
+- ←informed-by— The piano [`pian0` note]  
+  *Moved because of this.*
+- ←links-to— Tuning to the room [`tune0` note]
+";
+
+fn line_with<'a>(text: &'a Text<'static>, needle: &str) -> &'a Line<'static> {
+    text.lines
+        .iter()
+        .find(|l| l.spans.iter().any(|s| s.content.contains(needle)))
+        .unwrap_or_else(|| panic!("no line containing {needle:?}"))
+}
+
+fn span_with<'a>(line: &'a Line<'static>, needle: &str) -> &'a Span<'static> {
+    line.spans
+        .iter()
+        .find(|s| s.content.contains(needle))
+        .unwrap_or_else(|| panic!("no span containing {needle:?} in {line:?}"))
+}
+
+#[test]
+fn link_line_parts_are_painted_like_the_triage() {
+    let text = render_at_width(LINKS_PAGE, 100);
+    let line = line_with(&text, "Measuring the room");
+    let flat: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+    assert_eq!(flat, "1.  —links-to→  Measuring the room  [meas0 note]");
+
+    assert_eq!(span_with(line, "1.").style.fg, Some(Color::Cyan));
+    let edge = span_with(line, "—links-to→");
+    assert_eq!(edge.content, "—links-to→");
+    assert_eq!(edge.style.fg, Some(Color::Yellow));
+    assert!(edge.style.add_modifier.contains(Modifier::BOLD));
+    let name = span_with(line, "Measuring the room");
+    assert!(name.style.add_modifier.contains(Modifier::BOLD));
+    assert_eq!(name.style.fg, None);
+    let id = span_with(line, "meas0");
+    assert_eq!(id.content, "meas0", "id has no code padding");
+    assert_eq!(id.style.fg, Some(Color::Cyan));
+    let kind = span_with(line, "note");
+    assert_eq!(kind.content, "note");
+    assert!(kind.style.add_modifier.contains(Modifier::DIM));
+    assert_eq!(span_with(line, "[").style, Style::default());
+}
+
+#[test]
+fn link_in_arrows_and_bullet_painted() {
+    let text = render_at_width(LINKS_PAGE, 100);
+    let line = line_with(&text, "The piano");
+    let flat: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+    assert_eq!(flat, "•  ←informed-by—  The piano  [pian0 note]");
+    assert_eq!(span_with(line, "•").style.fg, Some(Color::Cyan));
+    assert_eq!(span_with(line, "←informed-by—").style.fg, Some(Color::Yellow));
+}
+
+#[test]
+fn dangling_link_is_red() {
+    let text = render_at_width(LINKS_PAGE, 100);
+    let line = line_with(&text, "never-written");
+    let tail = span_with(line, "[dangling]");
+    assert_eq!(tail.content, "[dangling]");
+    assert_eq!(tail.style.fg, Some(Color::Red));
+    assert!(span_with(line, "never-written").style.add_modifier.contains(Modifier::BOLD));
+}
+
+#[test]
+fn what_was_said_hangs_six_columns_in_italic() {
+    let text = render_at_width(LINKS_PAGE, 100);
+    let content = text_content(&text);
+    for said in ["A log sweep", "The rug is why", "It changed everything", "Moved because"] {
+        let line = line_with(&text, said);
+        let flat: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(flat.starts_with("      ") && !flat.starts_with("       "), "{flat:?}");
+        assert!(
+            span_with(line, said).style.add_modifier.contains(Modifier::ITALIC),
+            "{said} not italic"
+        );
+    }
+    // The hard-broken lines stay separate lines, in order.
+    let rug = content.iter().position(|l| l.contains("The rug  [")).unwrap();
+    assert!(content[rug + 1].contains("The rug is why"));
+    assert!(content[rug + 2].contains("It changed everything"));
+}
+
+#[test]
+fn what_was_said_wraps_within_its_hang() {
+    let text = render_at_width(LINKS_PAGE, 32);
+    let content = text_content(&text);
+    let first = content.iter().position(|l| l.contains("A log sweep")).unwrap();
+    assert!(content[first].starts_with("      A log sweep"), "{:?}", content[first]);
+    assert!(
+        content[first + 1].starts_with("      ") && content[first + 1].contains("door shut"),
+        "{:?}",
+        content[first + 1]
+    );
+}
+
+#[test]
+fn ordinary_items_are_left_alone() {
+    let text = render_at_width(LINKS_PAGE, 100);
+    let line = line_with(&text, "ordinary");
+    let flat: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+    assert_eq!(flat, "4. Just an ordinary item with  code  in it");
+    assert_eq!(span_with(line, "4.").style.fg, Some(Color::Gray));
+    assert_eq!(span_with(line, "code").style, INLINE_CODE_STYLE);
+}
+
+#[test]
+fn link_lines_render_without_a_width_too() {
+    let text = render_markdown(LINKS_PAGE, None);
+    let line = line_with(&text, "Measuring the room");
+    assert_eq!(span_with(line, "—links-to→").style.fg, Some(Color::Yellow));
+    let said = line_with(&text, "A log sweep");
+    let flat: String = said.spans.iter().map(|s| s.content.as_ref()).collect();
+    assert!(flat.starts_with("      A log sweep"), "{flat:?}");
+}
+
+#[test]
+fn nested_list_indentation_survives_wrapping() {
+    let text = render_at_width("- outer\n  - inner\n    - deep\n", 60);
+    let content = text_content(&text);
+    assert_eq!(content, ["• outer", "  ◦ inner", "    ▪ deep"]);
+}
+
+// ── link hit-testing ────────────────────────────────────────────────────
+
+#[test]
+fn link_text_at_finds_the_link_run_and_nothing_else() {
+    let text = render_at_width("See [the docs](https://x.example) and `code` here.", 80);
+    let line = &text.lines[0];
+    let flat: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+    let at = |needle: &str| flat.find(needle).unwrap();
+    assert_eq!(link_text_at(line, at("the docs")), Some("the docs".to_string()));
+    assert_eq!(link_text_at(line, at("docs") + 2), Some("the docs".to_string()));
+    assert_eq!(link_text_at(line, at("See")), None);
+    assert_eq!(link_text_at(line, at("code")), None);
+    assert_eq!(link_text_at(line, 500), None);
+}
+
+#[test]
+fn link_text_at_includes_styled_text_inside_a_link() {
+    let text = render_at_width("[plain **bold** tail](https://x.example)", 80);
+    let line = &text.lines[0];
+    assert_eq!(link_text_at(line, 0), Some("plain bold tail".to_string()));
+    assert_eq!(link_text_at(line, 7), Some("plain bold tail".to_string()));
 }

@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::time::Instant;
 
 use crate::app::{App, AppMode, Focus, Overlay};
-/// Timeout in milliseconds for composed key sequences (e.g., `gg`, `Space+e`).
+/// Timeout in milliseconds for composed key sequences (e.g., `gg`, `ff`).
 const DOUBLE_KEY_TIMEOUT_MS: u128 = 500;
 
 impl App {
@@ -25,18 +25,6 @@ impl App {
                                 self.tree.tree_state.select_first();
                             }
                         }
-                        return;
-                    }
-                    (' ', KeyCode::Char('e')) => {
-                        self.toggle_file_tree();
-                        return;
-                    }
-                    (' ', KeyCode::Char('p')) => {
-                        self.toggle_live_preview();
-                        return;
-                    }
-                    (' ', KeyCode::Char('s')) => {
-                        self.toggle_split_orientation();
                         return;
                     }
                     ('f', KeyCode::Char('f')) => {
@@ -106,8 +94,8 @@ impl App {
                 }
             }
 
-            // --- G: last item (FileList) or scroll bottom (Preview) ---
-            KeyCode::Char('G') => match self.focus {
+            // --- G / > / End: last item (FileList) or scroll bottom (Preview) ---
+            KeyCode::Char('G' | '>') | KeyCode::End => match self.focus {
                 Focus::FileList => {
                     self.tree.tree_state.select_last();
                 }
@@ -119,17 +107,30 @@ impl App {
                 self.pending_key = Some(('g', Instant::now()));
             }
 
+            // --- < / Home: first item (FileList) or scroll top (Preview), like `less` ---
+            KeyCode::Char('<') | KeyCode::Home => match self.focus {
+                Focus::Preview => self.document.scroll_to_top(),
+                Focus::FileList => {
+                    self.tree.tree_state.select_first();
+                }
+            },
+
             // --- f: start pending key for ff (file finder) ---
             KeyCode::Char('f') => {
                 self.pending_key = Some(('f', Instant::now()));
             }
 
-            // --- Space: start pending key for Space+e (leader key) ---
-            KeyCode::Char(' ') => {
-                self.pending_key = Some((' ', Instant::now()));
-            }
-
             // --- Preview-only scrolling ---
+            KeyCode::Char(' ') | KeyCode::PageDown => {
+                if self.focus == Focus::Preview {
+                    self.document.scroll_page_down();
+                }
+            }
+            KeyCode::PageUp | KeyCode::Char('b') => {
+                if self.focus == Focus::Preview {
+                    self.document.scroll_page_up();
+                }
+            }
             KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if self.focus == Focus::Preview {
                     self.document.scroll_half_page_down();
@@ -139,6 +140,17 @@ impl App {
                 if self.focus == Focus::Preview {
                     self.document.scroll_half_page_up();
                 }
+            }
+
+            // --- Ctrl chords: layout toggles (must precede the plain `e` arm) ---
+            KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.toggle_file_tree();
+            }
+            KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.toggle_live_preview();
+            }
+            KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.toggle_split_orientation();
             }
 
             // --- Mode transitions ---
@@ -442,6 +454,78 @@ mod tests {
         assert_eq!(app.document.scroll_offset, 5);
     }
 
+    /// Open a 60-paragraph document in Preview focus with a 10-line viewport.
+    fn preview_app(name: &str) -> (TempTestDir, App) {
+        let dir = TempTestDir::new(name);
+        let content = (0..60).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n\n");
+        dir.create_file("test.md", &content);
+
+        let mut app = App::new(dir.path(), Color::Reset).unwrap();
+        app.open_file(&dir.path().join("test.md"));
+        app.document.viewport_height = 10;
+        app.focus = Focus::Preview;
+        (dir, app)
+    }
+
+    #[test]
+    fn home_and_less_than_scroll_to_top() {
+        for code in [KeyCode::Home, KeyCode::Char('<')] {
+            let (_dir, mut app) = preview_app("mdt-test-normal-home");
+            app.document.scroll_offset = 15;
+            app.handle_normal_key(KeyEvent::new(code, KeyModifiers::NONE));
+            assert_eq!(app.document.scroll_offset, 0, "{code:?}");
+        }
+    }
+
+    #[test]
+    fn end_and_greater_than_scroll_to_bottom() {
+        for code in [KeyCode::End, KeyCode::Char('>')] {
+            let (_dir, mut app) = preview_app("mdt-test-normal-end");
+            app.handle_normal_key(KeyEvent::new(code, KeyModifiers::NONE));
+            assert_eq!(app.document.scroll_offset, app.document.max_scroll(), "{code:?}");
+        }
+    }
+
+    #[test]
+    fn page_down_scrolls_full_page() {
+        let (_dir, mut app) = preview_app("mdt-test-normal-pgdn");
+        app.handle_normal_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+        assert_eq!(app.document.scroll_offset, 10);
+    }
+
+    #[test]
+    fn page_up_scrolls_full_page() {
+        let (_dir, mut app) = preview_app("mdt-test-normal-pgup");
+        app.document.scroll_offset = 15;
+        app.handle_normal_key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
+        assert_eq!(app.document.scroll_offset, 5);
+    }
+
+    #[test]
+    fn b_key_in_preview_scrolls_page_up() {
+        let (_dir, mut app) = preview_app("mdt-test-normal-b");
+        app.document.scroll_offset = 15;
+        app.handle_normal_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE));
+        assert_eq!(app.document.scroll_offset, 5);
+    }
+
+    #[test]
+    fn space_in_preview_pages_down() {
+        let (_dir, mut app) = preview_app("mdt-test-normal-space-preview");
+        app.handle_normal_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        assert_eq!(app.document.scroll_offset, 10);
+        assert!(app.pending_key.is_none());
+    }
+
+    #[test]
+    fn space_in_file_list_does_not_scroll() {
+        let (_dir, mut app) = preview_app("mdt-test-normal-space-filelist");
+        app.show_file_tree = true;
+        app.focus = Focus::FileList;
+        app.handle_normal_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        assert_eq!(app.document.scroll_offset, 0);
+    }
+
     #[test]
     fn toggle_file_tree_changes_visibility() {
         let dir = TempTestDir::new("mdt-test-normal-toggle-tree");
@@ -543,29 +627,27 @@ mod tests {
     }
 
     #[test]
-    fn space_p_toggles_live_preview() {
-        let dir = TempTestDir::new("mdt-test-normal-space-p");
+    fn ctrl_p_toggles_live_preview() {
+        let dir = TempTestDir::new("mdt-test-normal-ctrl-p");
         dir.create_file("test.md", "# Test");
 
         let mut app = App::new(dir.path(), Color::Reset).unwrap();
         assert!(!app.live_preview.enabled);
 
-        app.handle_normal_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-        app.handle_normal_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE));
+        app.handle_normal_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
         assert!(app.live_preview.enabled);
     }
 
     #[test]
-    fn space_s_toggles_split_orientation() {
+    fn ctrl_s_toggles_split_orientation() {
         use crate::app::SplitOrientation;
-        let dir = TempTestDir::new("mdt-test-normal-space-s");
+        let dir = TempTestDir::new("mdt-test-normal-ctrl-s");
         dir.create_file("test.md", "# Test");
 
         let mut app = App::new(dir.path(), Color::Reset).unwrap();
         assert_eq!(app.live_preview.orientation, SplitOrientation::Horizontal);
 
-        app.handle_normal_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-        app.handle_normal_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        app.handle_normal_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
         assert_eq!(app.live_preview.orientation, SplitOrientation::Vertical);
     }
 

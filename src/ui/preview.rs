@@ -17,13 +17,17 @@ use crate::markdown::rewrap_blocks;
 /// Draw the preview pane with virtual scrolling.
 ///
 /// # Side Effects (Intentional)
+/// Padding between the preview pane's area and its first rendered line. Mouse hit-testing
+/// (clicking a link) maps terminal cells back through this.
+pub(crate) const PREVIEW_PADDING: Padding = Padding::new(2, 2, 1, 0);
+
 /// This function updates `app.document.viewport_height` and `app.document.viewport_width`
 /// on every frame. This follows Ratatui's `StatefulWidget` pattern where layout-dependent
 /// state is updated during render, since the actual viewport dimensions are only known at
 /// render time (they depend on terminal size, file tree visibility, and padding).
 /// Input handlers (scroll, search) depend on these values being current.
 pub fn draw_preview(frame: &mut Frame, app: &mut App, area: Rect) {
-    let block = Block::default().padding(Padding::new(2, 2, 1, 0));
+    let block = Block::default().padding(PREVIEW_PADDING);
 
     // Inner area height (excluding borders) is the viewport.
     let inner = block.inner(area);
@@ -31,21 +35,26 @@ pub fn draw_preview(frame: &mut Frame, app: &mut App, area: Rect) {
     // can resize at any time. Scroll clamping in input handling depends on this value.
     app.document.viewport_height = inner.height as usize;
 
-    // Re-render when viewport width changes (e.g. terminal resize, file tree toggle).
-    let new_width = inner.width as usize;
-    if new_width != app.document.viewport_width && app.document.current_file.is_some() {
-        let (lines, block_line_starts) =
-            rewrap_blocks(&app.document.rendered_blocks, Some(new_width));
-        app.document.rendered_lines = lines;
-        app.document.block_line_starts = block_line_starts;
-        app.document.rebuild_lower_cache();
-        app.document.viewport_width = new_width;
-        app.document.rebuild_heading_index();
-        // Clamp scroll offset after re-render
-        let max_scroll = app.document.rendered_lines.len().saturating_sub(inner.height as usize);
-        if app.document.scroll_offset > max_scroll {
-            app.document.scroll_offset = max_scroll;
+    // Re-render when viewport width changes (e.g. terminal resize, file tree toggle,
+    // or the `--max-width` cap). Keyed on rendered content rather than `current_file`
+    // so piped stdin (which has no file path) re-wraps too.
+    let new_width = app.render_width(inner.width as usize);
+    if new_width != app.document.viewport_width {
+        if !app.document.rendered_blocks.is_empty() {
+            let (lines, block_line_starts) =
+                rewrap_blocks(&app.document.rendered_blocks, Some(new_width));
+            app.document.rendered_lines = lines;
+            app.document.block_line_starts = block_line_starts;
+            app.document.rebuild_lower_cache();
+            app.document.rebuild_heading_index();
+            // Clamp scroll offset after re-render
+            let max_scroll =
+                app.document.rendered_lines.len().saturating_sub(inner.height as usize);
+            if app.document.scroll_offset > max_scroll {
+                app.document.scroll_offset = max_scroll;
+            }
         }
+        app.document.viewport_width = new_width;
     }
 
     if app.document.rendered_lines.is_empty() {
@@ -136,7 +145,7 @@ pub fn draw_live_preview(frame: &mut Frame, app: &mut App, area: Rect) {
     let inner = block.inner(area);
 
     // Re-wrap if viewport width changed.
-    let new_width = inner.width as usize;
+    let new_width = app.render_width(inner.width as usize);
     if new_width != app.live_preview.viewport_width && !app.live_preview.rendered_blocks.is_empty()
     {
         let (lines, block_line_starts) =
@@ -182,11 +191,8 @@ pub fn draw_live_preview(frame: &mut Frame, app: &mut App, area: Rect) {
             let max_preview_scroll =
                 app.live_preview.rendered_lines.len().saturating_sub(viewport_height);
 
-            if max_editor_scroll == 0 {
-                app.live_preview.scroll_offset = 0;
-            } else {
-                app.live_preview.scroll_offset = (new_est * max_preview_scroll) / max_editor_scroll;
-            }
+            app.live_preview.scroll_offset =
+                (new_est * max_preview_scroll).checked_div(max_editor_scroll).unwrap_or(0);
         }
         app.live_preview.estimated_scroll_top = new_est;
     }

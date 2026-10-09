@@ -24,6 +24,16 @@ fn key(code: KeyCode) -> KeyEvent {
     }
 }
 
+/// Create a Ctrl+<char> key press event.
+fn ctrl(c: char) -> KeyEvent {
+    KeyEvent {
+        code: KeyCode::Char(c),
+        modifiers: KeyModifiers::CONTROL,
+        kind: KeyEventKind::Press,
+        state: KeyEventState::NONE,
+    }
+}
+
 /// Create a key press with modifiers.
 fn key_mod(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
     KeyEvent { code, modifiers, kind: KeyEventKind::Press, state: KeyEventState::NONE }
@@ -103,24 +113,22 @@ fn gg_sequence_selects_first_in_file_list() {
     assert_eq!(after_gg, first_selected);
 }
 
-// ── Space+e (toggle file tree) ─────────────────────────────────────────
+// ── Ctrl+e (toggle file tree) ──────────────────────────────────────────
 
 #[test]
-fn space_e_toggles_file_tree() {
-    let dir = TempTestDir::new("mdt-integ-space-e");
+fn ctrl_e_toggles_file_tree() {
+    let dir = TempTestDir::new("mdt-integ-ctrl-e");
     dir.create_file("test.md", "# Test");
 
     let mut app = App::new(dir.path(), Color::Reset).unwrap();
     assert!(!app.show_file_tree);
 
-    // Space+e toggles on
-    app.handle_event(key(KeyCode::Char(' ')));
-    app.handle_event(key(KeyCode::Char('e')));
+    // Ctrl+e toggles on
+    app.handle_event(ctrl('e'));
     assert!(app.show_file_tree);
 
-    // Space+e toggles off
-    app.handle_event(key(KeyCode::Char(' ')));
-    app.handle_event(key(KeyCode::Char('e')));
+    // Ctrl+e toggles off
+    app.handle_event(ctrl('e'));
     assert!(!app.show_file_tree);
 }
 
@@ -381,4 +389,103 @@ fn ctrl_d_u_half_page_scroll() {
     // Ctrl+u scrolls back up
     app.handle_event(key_mod(KeyCode::Char('u'), KeyModifiers::CONTROL));
     assert_eq!(app.document.scroll_offset, 0);
+}
+
+// ── Opening a single file from the command line ─────────────────────────
+
+#[test]
+fn file_argument_roots_tree_at_parent_and_opens_file() {
+    let dir = TempTestDir::new("mdt-integ-file-arg");
+    dir.create_file("a.md", "# Alpha");
+    dir.create_file("note.md", "# Note Heading\n\nNote body text.");
+
+    let file_path = dir.path().join("note.md");
+    let mut app = App::new(&file_path, Color::Reset).unwrap();
+
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    assert_eq!(app.root_path, root, "tree should be rooted at the file's directory");
+    assert_eq!(app.document.current_file.as_deref(), Some(root.join("note.md").as_path()));
+    assert_eq!(app.focus, Focus::Preview);
+    assert!(app.tree.path_map.contains_key("a.md"));
+    assert_eq!(app.tree.tree_state.selected(), &["note.md".to_string()]);
+
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+    let text = render(&mut terminal, &mut app);
+    assert!(text.contains("Note Heading"), "preview should show the opened file");
+    assert!(text.contains("Note body text"));
+}
+
+#[test]
+fn file_argument_non_md_file_still_opens() {
+    let dir = TempTestDir::new("mdt-integ-file-arg-txt");
+    dir.create_file("readme.md", "# Readme");
+    dir.create_file("plain.txt", "# Plain Text\n\nNot markdown by extension.");
+
+    let mut app = App::new(&dir.path().join("plain.txt"), Color::Reset).unwrap();
+
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    assert_eq!(app.root_path, root);
+    assert_eq!(app.document.current_file.as_deref(), Some(root.join("plain.txt").as_path()));
+    // The tree filter hides non-.md files, so the first tree item is selected instead.
+    assert!(!app.tree.path_map.contains_key("plain.txt"));
+    assert_eq!(app.tree.tree_state.selected(), &["readme.md".to_string()]);
+
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+    let text = render(&mut terminal, &mut app);
+    assert!(text.contains("Plain Text"));
+}
+
+// ── --max-width cap ─────────────────────────────────────────────────────
+
+const LOREM: &str =
+    "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor \
+incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation \
+ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit \
+in voluptate velit esse cillum dolore eu fugiat nulla pariatur.";
+
+/// Widest rendered row (trailing spaces trimmed), excluding the status bar.
+fn max_content_row_width(terminal: &Terminal<TestBackend>) -> usize {
+    let buf = terminal.backend().buffer();
+    (0..buf.area.height.saturating_sub(1))
+        .map(|y| {
+            (0..buf.area.width)
+                .filter_map(|x| buf.cell(Position::new(x, y)))
+                .map(ratatui::buffer::Cell::symbol)
+                .collect::<String>()
+                .trim_end()
+                .chars()
+                .count()
+        })
+        .max()
+        .unwrap_or(0)
+}
+
+#[test]
+fn max_width_caps_wrapping_for_file_preview() {
+    let dir = TempTestDir::new("mdt-integ-max-width-file");
+    dir.create_file("lorem.md", &format!("# Title\n\n{LOREM}\n\n- {LOREM}\n"));
+    let mut app = App::new(&dir.path().join("lorem.md"), Color::Reset).unwrap();
+    let mut terminal = Terminal::new(TestBackend::new(200, 30)).unwrap();
+
+    terminal.draw(|f| ui::draw(f, &mut app)).unwrap();
+    assert!(max_content_row_width(&terminal) > 150, "uncapped text should use the full width");
+
+    app.max_width = Some(100);
+    terminal.draw(|f| ui::draw(f, &mut app)).unwrap();
+    // 2 columns of left padding + up to 100 columns of content.
+    assert!(max_content_row_width(&terminal) <= 102);
+    assert_eq!(app.document.viewport_width, 100);
+}
+
+#[test]
+fn max_width_caps_wrapping_for_stdin() {
+    let mut app = App::from_stdin(format!("# Title\n\n{LOREM}\n"), Color::Reset);
+    app.max_width = Some(100);
+    let mut terminal = Terminal::new(TestBackend::new(200, 30)).unwrap();
+
+    terminal.draw(|f| ui::draw(f, &mut app)).unwrap();
+    assert!(max_content_row_width(&terminal) <= 102);
+    assert_eq!(app.document.viewport_width, 100);
 }

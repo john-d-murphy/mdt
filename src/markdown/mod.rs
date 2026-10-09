@@ -12,6 +12,7 @@ use pulldown_cmark::{Options, Parser};
 use ratatui::text::Span;
 
 pub(crate) mod blocks;
+mod link_line;
 pub(crate) mod syntax;
 mod wrap;
 use syntax::no_color;
@@ -21,7 +22,7 @@ use renderer::Renderer;
 use theme::*;
 
 pub(crate) use blocks::{rewrap_blocks, RenderedBlock};
-pub(crate) use renderer::{deduplicate_links, LinkInfo};
+pub(crate) use renderer::{deduplicate_links, humanize_url, LinkInfo};
 
 #[cfg(test)]
 mod test_helpers;
@@ -116,4 +117,34 @@ pub(crate) fn render_markdown_blocks_with_source_map(
         .collect();
 
     (blocks, links, source_lines)
+}
+
+/// The text of the link under display column `col` of a rendered line, if there is one: the
+/// run of link-styled spans around that column, joined. Links are the only underlined text
+/// the renderer produces (bold inside a link recolours it, so colour is not checked), which
+/// identifies them after wrapping has re-split spans.
+pub(crate) fn link_text_at(line: &ratatui::text::Line<'_>, col: usize) -> Option<String> {
+    use ratatui::style::Modifier;
+    use unicode_width::UnicodeWidthStr;
+
+    let is_link = |s: &Span<'_>| s.style.add_modifier.contains(Modifier::UNDERLINED);
+
+    let mut x = 0;
+    let mut hit = None;
+    for (i, span) in line.spans.iter().enumerate() {
+        let w = span.content.width();
+        if col >= x && col < x + w {
+            hit = Some(i);
+            break;
+        }
+        x += w;
+    }
+    let hit = hit?;
+    if !is_link(&line.spans[hit]) {
+        return None;
+    }
+    let start = (0..hit).rev().take_while(|&i| is_link(&line.spans[i])).last().unwrap_or(hit);
+    let end =
+        (hit..line.spans.len()).take_while(|&i| is_link(&line.spans[i])).last().unwrap_or(hit);
+    Some(line.spans[start..=end].iter().map(|s| s.content.as_ref()).collect())
 }

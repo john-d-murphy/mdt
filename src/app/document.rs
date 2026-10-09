@@ -78,6 +78,19 @@ impl DocumentState {
         self.scroll_offset = self.scroll_offset.saturating_sub(half.max(1));
     }
 
+    /// Scroll forward one full viewport (like Space / PageDown in `less`).
+    pub(crate) fn scroll_page_down(&mut self) {
+        let page = self.viewport_height.max(1);
+        self.scroll_offset = self.scroll_offset.saturating_add(page);
+        self.clamp_scroll();
+    }
+
+    /// Scroll back one full viewport (like `b` / PageUp in `less`).
+    pub(crate) fn scroll_page_up(&mut self) {
+        let page = self.viewport_height.max(1);
+        self.scroll_offset = self.scroll_offset.saturating_sub(page);
+    }
+
     pub(crate) fn max_scroll(&self) -> usize {
         self.rendered_lines.len().saturating_sub(self.viewport_height)
     }
@@ -87,6 +100,30 @@ impl DocumentState {
         if self.scroll_offset > max {
             self.scroll_offset = max;
         }
+    }
+
+    /// The document link under display column `col` of rendered line `line_idx`, if any.
+    ///
+    /// Rendered spans carry no URL, so the link-styled text under the cursor is matched back
+    /// to the collected links: by display text, by URL, or by the humanised URL an autolink is
+    /// listed under; failing that, a wrapped fragment matches the first link containing it.
+    pub(crate) fn link_at(&self, line_idx: usize, col: usize) -> Option<&LinkInfo> {
+        let line = self.rendered_lines.get(line_idx)?;
+        let text = crate::markdown::link_text_at(line, col)?;
+        let text = text.trim();
+        if text.is_empty() {
+            return None;
+        }
+        self.links
+            .iter()
+            .find(|l| {
+                l.display_text == text
+                    || l.url == text
+                    || crate::markdown::humanize_url(&l.url) == text
+            })
+            .or_else(|| {
+                self.links.iter().find(|l| l.display_text.contains(text) || l.url.contains(text))
+            })
     }
 
     /// Scroll so that `line` is visible near the top of the viewport.
@@ -204,6 +241,32 @@ mod tests {
         doc.scroll_offset = 5;
         doc.scroll_half_page_up();
         assert_eq!(doc.scroll_offset, 4);
+    }
+
+    #[test]
+    fn scroll_page_down_moves_full_viewport_and_clamps() {
+        let mut doc = make_doc(50, 20);
+        doc.scroll_page_down();
+        assert_eq!(doc.scroll_offset, 20);
+        doc.scroll_page_down();
+        assert_eq!(doc.scroll_offset, 30); // clamped to max_scroll
+    }
+
+    #[test]
+    fn scroll_page_up_moves_full_viewport_and_floors_at_zero() {
+        let mut doc = make_doc(50, 20);
+        doc.scroll_offset = 25;
+        doc.scroll_page_up();
+        assert_eq!(doc.scroll_offset, 5);
+        doc.scroll_page_up();
+        assert_eq!(doc.scroll_offset, 0);
+    }
+
+    #[test]
+    fn scroll_page_down_at_least_one() {
+        let mut doc = make_doc(5, 0);
+        doc.scroll_page_down();
+        assert_eq!(doc.scroll_offset, 1);
     }
 
     #[test]

@@ -41,12 +41,20 @@ impl App {
                 let url = link.url.clone();
                 self.overlay = Overlay::None;
                 self.link_picker.search_query.clear();
-                self.status_message = format!("Opening: {url}");
-                std::thread::spawn(move || {
-                    let _ = open::that(&url);
-                });
+                self.open_url(url);
             }
         }
+    }
+
+    /// Hand a URL to the system opener and say so in the status bar.
+    pub(crate) fn open_url(&mut self, url: String) {
+        self.status_message = format!("Opening: {url}");
+        if cfg!(test) {
+            return; // never launch a browser from the test suite
+        }
+        std::thread::spawn(move || {
+            let _ = open::that(&url);
+        });
     }
 }
 
