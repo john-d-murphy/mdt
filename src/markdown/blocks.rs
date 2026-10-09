@@ -95,15 +95,28 @@ fn rewrap_styled_line(
 ) {
     if let Some(width) = available_width {
         let bq_prefix_width = blockquote_depth * BLOCKQUOTE_INDENT_COLS;
-        let effective_width = width.saturating_sub(bq_prefix_width);
-        let wrapped_lines = wrap_spans(spans, effective_width);
+
+        // Leading whitespace-only spans are indentation (a nested list's, or hung prose).
+        // `wrap_spans` trims whitespace at line starts, so lift them off here and set them
+        // back on the first visual line.
+        let lead = spans
+            .iter()
+            .take_while(|s| !s.content.is_empty() && s.content.chars().all(char::is_whitespace))
+            .count();
+        let (indent, body) = spans.split_at(lead);
+        let indent_width = spans_display_width(indent);
+
+        let effective_width = width.saturating_sub(bq_prefix_width + indent_width);
+        let wrapped_lines = wrap_spans(body, effective_width);
 
         for (i, line_spans) in wrapped_lines.into_iter().enumerate() {
             let mut final_spans = Vec::new();
             for _ in 0..blockquote_depth {
                 final_spans.push(Span::styled("▎ ", BLOCKQUOTE_STYLE));
             }
-            if i > 0 && list_marker_width > 0 {
+            if i == 0 {
+                final_spans.extend(indent.iter().cloned());
+            } else if list_marker_width > 0 {
                 final_spans.push(Span::styled(" ".repeat(list_marker_width), Style::default()));
             }
             final_spans.extend(line_spans);

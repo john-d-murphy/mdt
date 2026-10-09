@@ -535,3 +535,11 @@ fn example() { let very_long_variable_name = \"some value\"; }
     // 8. Heading text present
     assert!(joined.contains("Heading"), "Heading text missing");
 }
+
+#[test]
+fn nested_list_indentation_survives_wrapping() {
+    let text = render_at_width("- outer\n  - inner\n    - deep\n", 60);
+    let content = text_content(&text);
+    assert_eq!(content, ["• outer", "  ◦ inner", "    ▪ deep"]);
+}
+
