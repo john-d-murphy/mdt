@@ -3,6 +3,7 @@
 mod document;
 mod event;
 mod file_finder;
+mod image_viewer;
 mod link_picker;
 mod state;
 mod tree;
@@ -61,6 +62,8 @@ pub struct App {
     pub(crate) stdin_mode: bool,
     /// Terminal graphics for inline images.
     pub(crate) images: crate::images::ImageState,
+    /// The image viewer overlay — which picture is open, and how it is being looked at.
+    pub(crate) image_viewer: crate::images::ImageViewerState,
 }
 
 impl App {
@@ -155,6 +158,7 @@ impl App {
             live_preview: LivePreviewState::default(),
             stdin_mode: false,
             images: crate::images::ImageState::disabled(),
+            image_viewer: crate::images::ImageViewerState::default(),
         };
 
         if let Some(file) = initial_file {
@@ -221,6 +225,7 @@ impl App {
             live_preview: LivePreviewState::default(),
             stdin_mode: true,
             images: crate::images::ImageState::disabled(),
+            image_viewer: crate::images::ImageViewerState::default(),
         }
     }
 

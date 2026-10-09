@@ -11,7 +11,7 @@ use ratatui::widgets::{
 };
 use ratatui::Frame;
 
-use crate::app::App;
+use crate::app::{App, Overlay};
 use crate::markdown::rewrap_blocks;
 
 /// Draw the preview pane with virtual scrolling.
@@ -115,15 +115,18 @@ pub fn draw_preview(frame: &mut Frame, app: &mut App, area: Rect) {
     let paragraph = Paragraph::new(text).block(block).scroll((0, 0));
     frame.render_widget(paragraph, area);
 
-    // Images go over the rows re-wrapping left for them.
-    app.images.draw(
-        frame,
-        &app.document.rendered_blocks,
-        &app.document.block_line_starts,
-        app.document.rendered_lines.len(),
-        app.document.scroll_offset,
-        inner,
-    );
+    // Images go over the rows re-wrapping left for them — but not under an overlay, which
+    // would cover part of a picture and leave the rest poking out around it.
+    if matches!(app.overlay, Overlay::None) {
+        app.images.draw(
+            frame,
+            &app.document.rendered_blocks,
+            &app.document.block_line_starts,
+            app.document.rendered_lines.len(),
+            app.document.scroll_offset,
+            inner,
+        );
+    }
 
     // Scrollbar: only render when content exceeds viewport.
     let total_lines = app.document.rendered_lines.len();
@@ -229,15 +232,17 @@ pub fn draw_live_preview(frame: &mut Frame, app: &mut App, area: Rect) {
     let paragraph = Paragraph::new(text).block(block).scroll((0, 0));
     frame.render_widget(paragraph, area);
 
-    // Images over the rows re-wrapping left for them.
-    app.images.draw(
-        frame,
-        &app.live_preview.rendered_blocks,
-        &app.live_preview.block_line_starts,
-        app.live_preview.rendered_lines.len(),
-        app.live_preview.scroll_offset,
-        inner,
-    );
+    // Images over the rows re-wrapping left for them (not under an overlay — see above).
+    if matches!(app.overlay, Overlay::None) {
+        app.images.draw(
+            frame,
+            &app.live_preview.rendered_blocks,
+            &app.live_preview.block_line_starts,
+            app.live_preview.rendered_lines.len(),
+            app.live_preview.scroll_offset,
+            inner,
+        );
+    }
 
     // Scrollbar
     let total_lines = app.live_preview.rendered_lines.len();

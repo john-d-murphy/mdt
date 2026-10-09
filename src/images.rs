@@ -18,13 +18,107 @@ use ratatui::text::Span;
 use ratatui::widgets::{Paragraph, Widget};
 use ratatui::Frame;
 use ratatui_image::picker::{Picker, ProtocolType};
+use ratatui_image::protocol::Protocol;
 use ratatui_image::sliced::{SignedPosition, SlicedImage, SlicedProtocol};
+use ratatui_image::{FilterType, Image, Resize};
 
 use crate::markdown::{ImageLayout, RenderedBlock};
 use crate::palette;
 
-/// The most rows one image may take, however tall it is.
+/// The most rows one image may take inline, however tall it is. A picture bigger than this
+/// is still shown whole, just small — click it to open the viewer.
 pub(crate) const MAX_IMAGE_ROWS: u16 = 24;
+
+/// The viewer's zoom steps, as a percentage of "the whole picture, fit to the box".
+const ZOOM_STEPS: [u32; 7] = [100, 150, 200, 300, 400, 600, 800];
+
+/// The image viewer overlay: which file is on show, how far in, and where.
+#[derive(Default)]
+pub(crate) struct ImageViewerState {
+    /// The file on show; `None` when the viewer is closed.
+    pub(crate) path: Option<PathBuf>,
+    /// Which of [`ZOOM_STEPS`] is in force.
+    step: usize,
+    /// Where the view is centred, as a fraction of the image's width and height.
+    center: (f64, f64),
+    /// The modal's rect as last drawn, so that a click outside it can close the viewer.
+    pub(crate) area: Option<Rect>,
+}
+
+impl ImageViewerState {
+    /// Show `path`, whole and centred.
+    pub(crate) fn open(&mut self, path: PathBuf) {
+        self.path = Some(path);
+        self.fit();
+        self.area = None;
+    }
+
+    pub(crate) fn close(&mut self) {
+        self.path = None;
+        self.area = None;
+    }
+
+    /// The zoom in force, as a percentage.
+    pub(crate) fn zoom(&self) -> u32 {
+        ZOOM_STEPS[self.step.min(ZOOM_STEPS.len() - 1)]
+    }
+
+    pub(crate) fn zoom_in(&mut self) {
+        self.step = (self.step + 1).min(ZOOM_STEPS.len() - 1);
+        self.clamp_center();
+    }
+
+    pub(crate) fn zoom_out(&mut self) {
+        self.step = self.step.saturating_sub(1);
+        self.clamp_center();
+    }
+
+    /// The whole picture again, centred.
+    pub(crate) fn fit(&mut self) {
+        self.step = 0;
+        self.center = (0.5, 0.5);
+    }
+
+    /// Move the view by a fifth of what is on show, `dx`/`dy` in units of one step.
+    pub(crate) fn pan(&mut self, dx: f64, dy: f64) {
+        let step = 0.2 * self.visible();
+        self.center = (self.center.0 + dx * step, self.center.1 + dy * step);
+        self.clamp_center();
+    }
+
+    /// The fraction of each axis on show at this zoom.
+    fn visible(&self) -> f64 {
+        100.0 / f64::from(self.zoom())
+    }
+
+    /// Keep the view inside the picture: at 100% there is nowhere to pan to.
+    fn clamp_center(&mut self) {
+        let half = self.visible() / 2.0;
+        let (lo, hi) = (half.min(0.5), (1.0 - half).max(0.5));
+        self.center = (self.center.0.clamp(lo, hi), self.center.1.clamp(lo, hi));
+    }
+
+    /// The region on show, for tests: see [`Self::crop`].
+    #[cfg(test)]
+    pub(crate) fn crop_for_test(&self, w: u32, h: u32) -> (u32, u32, u32, u32) {
+        self.crop(w, h)
+    }
+
+    /// The region of a `w`×`h` picture on show: `(x, y, width, height)` in pixels.
+    fn crop(&self, w: u32, h: u32) -> (u32, u32, u32, u32) {
+        let (w, h) = (w.max(1), h.max(1));
+        let visible = self.visible();
+        let cw = (f64::from(w) * visible).round().max(1.0) as u32;
+        let ch = (f64::from(h) * visible).round().max(1.0) as u32;
+        let (cw, ch) = (cw.min(w), ch.min(h));
+        let x = (f64::from(w) * self.center.0 - f64::from(cw) / 2.0).round().max(0.0) as u32;
+        let y = (f64::from(h) * self.center.1 - f64::from(ch) / 2.0).round().max(0.0) as u32;
+        (x.min(w - cw), y.min(h - ch), cw, ch)
+    }
+}
+
+/// What a cached viewer encoding was made for: the file, the pixels on show, the box.
+type ViewerKey = (PathBuf, (u32, u32, u32, u32), (u16, u16));
 
 /// A decoded image and, once drawn, its encoding for the size it was last drawn at.
 struct Cached {
@@ -38,17 +132,19 @@ pub(crate) struct ImageState {
     picker: Option<Picker>,
     enabled: bool,
     cache: HashMap<PathBuf, Option<Cached>>,
+    /// The viewer's last encoding, kept so that a redraw at the same zoom costs nothing.
+    viewer_encoding: Option<(ViewerKey, Protocol)>,
 }
 
 impl ImageState {
     /// No graphics at all: `--no-images`, or before the terminal has been asked.
     pub(crate) fn disabled() -> Self {
-        Self { picker: None, enabled: false, cache: HashMap::new() }
+        Self { picker: None, enabled: false, cache: HashMap::new(), viewer_encoding: None }
     }
 
     /// Graphics through `picker`, switched on.
     pub(crate) fn with_picker(picker: Picker) -> Self {
-        Self { picker: Some(picker), enabled: true, cache: HashMap::new() }
+        Self { picker: Some(picker), enabled: true, cache: HashMap::new(), viewer_encoding: None }
     }
 
     /// Whether the terminal was asked at all (false under `--no-images`).
@@ -95,6 +191,48 @@ impl ImageState {
     /// Forget decoded images (on opening another document).
     pub(crate) fn clear_cache(&mut self) {
         self.cache.clear();
+        self.viewer_encoding = None;
+    }
+
+    /// Draw the viewer's picture at `area`: the region it is looking at, scaled to fill the
+    /// box — enlarged past its natural size if need be, which is the point of the viewer.
+    pub(crate) fn draw_viewer(&mut self, frame: &mut Frame, area: Rect, viewer: &ImageViewerState) {
+        let Self { picker, cache, viewer_encoding, .. } = self;
+        let (Some(picker), Some(path)) = (picker.as_ref(), viewer.path.as_ref()) else { return };
+        if area.width == 0 || area.height == 0 {
+            return;
+        }
+
+        let entry = cache
+            .entry(path.clone())
+            .or_insert_with(|| image::open(path).ok().map(|image| Cached { image, sliced: None }));
+        let Some(cached) = entry else {
+            let note = format!("[image: could not decode {}]", path.display());
+            let style = Style::new().fg(palette::FG_MUTED).add_modifier(Modifier::ITALIC);
+            frame.render_widget(Paragraph::new(Span::styled(note, style)), area);
+            return;
+        };
+
+        let crop = viewer.crop(cached.image.width(), cached.image.height());
+        let key = (path.clone(), crop, (area.width, area.height));
+        if !matches!(viewer_encoding.as_ref(), Some((at, _)) if *at == key) {
+            let region = cached.image.crop_imm(crop.0, crop.1, crop.2, crop.3);
+            let size = Size::new(area.width, area.height);
+            // `Scale` rather than `Fit`: `Fit` never enlarges, and a small picture shown
+            // bigger is what the viewer is for.
+            *viewer_encoding = picker
+                .new_protocol(region, size, Resize::Scale(Some(FilterType::Triangle)))
+                .ok()
+                .map(|protocol| (key, protocol));
+        }
+        if let Some((_, protocol)) = viewer_encoding.as_ref() {
+            // Centre it: the proportions are kept, so it rarely fills the box exactly.
+            let size = protocol.size();
+            let x = area.x + area.width.saturating_sub(size.width) / 2;
+            let y = area.y + area.height.saturating_sub(size.height) / 2;
+            let rect = Rect::new(x, y, size.width.min(area.width), size.height.min(area.height));
+            Image::new(protocol).allow_clipping(true).render(rect, frame.buffer_mut());
+        }
     }
 
     /// Paint every image block with rows on screen, including the visible part of one that is

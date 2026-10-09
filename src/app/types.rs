@@ -49,6 +49,8 @@ pub(crate) enum Overlay {
     LinkPicker,
     FileOp(FileOp),
     FileFinder,
+    /// One image, large, zoomable — opened by clicking it in the preview.
+    ImageViewer,
 }
 
 /// Split orientation for live preview alongside editor.
