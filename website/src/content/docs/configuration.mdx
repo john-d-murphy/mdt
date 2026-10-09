@@ -8,7 +8,7 @@ mdt is configured through command-line flags and environment variables. There is
 ## Usage
 
 ```bash
-mdt [path] [--max-file-size <bytes>] [--max-width <columns>]
+mdt [path] [--max-file-size <bytes>] [--max-width <columns>] [--no-images]
 ```
 
 If no path is given, mdt opens the current directory. You can pass a directory to browse or a specific file to open directly. When given a file, mdt opens it immediately, roots the file tree at the file's directory, and selects the file in the tree.
@@ -37,6 +37,7 @@ In stdin mode, mdt operates in read-only preview mode. The file tree, file finde
 | ------------------------- | --------------------------------------------- | ---------------- |
 | `--max-file-size <bytes>` | Maximum file size in bytes that mdt will open | 5,242,880 (5 MB) |
 | `--max-width <columns>`   | Maximum width in columns for rendered markdown | none (terminal width) |
+| `--no-images`             | Never draw images; `![alt](src)` shows as `[image: alt]` | images on |
 
 For example, to allow opening files up to 10 MB:
 
@@ -72,7 +73,22 @@ NO_COLOR=1 mdt
 
 This is useful for terminals that do not support colors or when piping output.
 
+### `MDT_NO_IMAGES`
+
+Set to `1` to start with images off, as if `--no-images` were given.
+
+```bash
+export MDT_NO_IMAGES=1
+```
+
 ## Terminal integration
+
+### Inline images
+
+`![alt](path)` is drawn in the preview. At startup mdt asks the terminal what it can do and picks kitty's graphics protocol, sixels or iTerm2's, falling back to unicode half-blocks anywhere else (including through `tmux` without passthrough). Images are sized to the pane, never upscaled, and take at most 24 rows; one that is only partly scrolled into view is left blank until it is wholly visible. Only local files are drawn — a remote URL shows as `[image: alt] (url)` and a missing file as `[image: alt] (not found)`.
+
+Press `Ctrl+i` or run `:images` to turn images off and on for a busy page. `Ctrl+i` needs a terminal that speaks the kitty keyboard protocol (kitty, foot, WezTerm, Ghostty…); elsewhere it is indistinguishable from `Tab`, so use `:images`. `--no-images` (or `MDT_NO_IMAGES=1`) skips the terminal query entirely.
+
 
 ### Mouse support
 

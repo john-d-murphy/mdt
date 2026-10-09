@@ -78,6 +78,7 @@ impl App {
                     self.status_message = "Not in editor".to_string();
                 }
             }
+            "images" => self.toggle_images(),
             "preview" => {
                 self.toggle_live_preview();
             }
@@ -95,6 +96,23 @@ mod tests {
     use crate::app::{App, AppMode};
     use crate::test_util::TempTestDir;
     use ratatui::style::Color;
+
+    #[test]
+    fn images_command_toggles_when_available_and_explains_when_not() {
+        let dir = TempTestDir::new("mdt-test-cmd-images");
+        dir.create_file("test.md", "# Test");
+        let mut app = App::new(dir.path(), Color::Reset).unwrap();
+
+        app.execute_command("images");
+        assert!(app.status_message.contains("--no-images"), "{}", app.status_message);
+
+        app.images =
+            crate::images::ImageState::with_picker(ratatui_image::picker::Picker::halfblocks());
+        app.execute_command("images");
+        assert_eq!(app.status_message, "Images OFF");
+        app.execute_command("images");
+        assert_eq!(app.status_message, "Images ON (half-blocks)");
+    }
 
     #[test]
     fn execute_quit_sets_should_quit() {

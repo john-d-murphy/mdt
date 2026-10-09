@@ -3,6 +3,8 @@
 //! Produced once per file open by [`super::render_markdown_blocks`]; re-wrapped
 //! cheaply on width change by [`rewrap_blocks`].
 
+use std::path::PathBuf;
+
 use pulldown_cmark::Alignment;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
@@ -37,6 +39,42 @@ pub enum RenderedBlock {
         alignments: Vec<Alignment>,
         blockquote_depth: usize,
     },
+    /// An inline image, `![alt](src)`. `path` is the file it resolves to (None for a URL or
+    /// data URI — only local files are drawn) and `dims` its pixel size when that file could
+    /// be read. Re-wrapping gives it rows to be drawn over, or one line of text.
+    Image { src: String, alt: String, path: Option<PathBuf>, dims: Option<(u32, u32)> },
+}
+
+/// How images are laid out when re-wrapping: whether they get rows at all, the terminal's
+/// cell size in pixels (to turn an image's pixels into rows), and the most rows one may take.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ImageLayout {
+    pub enabled: bool,
+    pub cell_px: (u16, u16),
+    pub max_rows: u16,
+}
+
+impl ImageLayout {
+    /// Images drawn as a line of text, never as rows.
+    pub const DISABLED: ImageLayout = ImageLayout { enabled: false, cell_px: (8, 16), max_rows: 0 };
+
+    /// Rows a `w`×`h` pixel image takes: as wide as its pixels allow up to the available
+    /// columns (never upscaled), its height scaled to match, then capped at `max_rows`.
+    pub fn rows_for(self, (w, h): (u32, u32), available_width: Option<usize>) -> u16 {
+        let (cw, ch) = (u64::from(self.cell_px.0.max(1)), u64::from(self.cell_px.1.max(1)));
+        let (w, h) = (u64::from(w.max(1)), u64::from(h.max(1)));
+        let natural_cols = (w + cw - 1) / cw;
+        let cols = available_width.map_or(natural_cols, |a| natural_cols.min(a as u64)).max(1);
+        let h_px = h * (cols * cw) / w;
+        let rows = ((h_px + ch - 1) / ch).max(1).min(u64::from(self.max_rows.max(1)));
+        u16::try_from(rows).unwrap_or(u16::MAX)
+    }
+}
+
+impl Default for ImageLayout {
+    fn default() -> Self {
+        Self::DISABLED
+    }
 }
 
 /// Re-wrap cached [`RenderedBlock`]s to a new width, producing final display lines.
@@ -46,6 +84,7 @@ pub enum RenderedBlock {
 pub fn rewrap_blocks(
     blocks: &[RenderedBlock],
     available_width: Option<usize>,
+    images: ImageLayout,
 ) -> (Vec<Line<'static>>, Vec<usize>) {
     let mut lines = Vec::new();
     let mut block_line_starts = Vec::with_capacity(blocks.len());
@@ -78,6 +117,9 @@ pub fn rewrap_blocks(
             }
             RenderedBlock::Table { rows, alignments: _, blockquote_depth } => {
                 rewrap_table(&mut lines, rows, *blockquote_depth, available_width);
+            }
+            RenderedBlock::Image { src, alt, path, dims } => {
+                rewrap_image(&mut lines, src, alt, path.is_some(), *dims, available_width, images);
             }
         }
     }
@@ -135,6 +177,38 @@ fn rewrap_styled_line(
             lines.push(Line::from(spans.to_vec()));
         }
     }
+}
+
+// ── Image ───────────────────────────────────────────────────────────────
+
+/// Rows for the image to be drawn over when it is a readable local file and images are on;
+/// otherwise one muted line naming it — its alt text, or its source — and why.
+fn rewrap_image(
+    lines: &mut Vec<Line<'static>>,
+    src: &str,
+    alt: &str,
+    is_local: bool,
+    dims: Option<(u32, u32)>,
+    available_width: Option<usize>,
+    images: ImageLayout,
+) {
+    if let (true, true, Some(dims)) = (images.enabled, is_local, dims) {
+        for _ in 0..images.rows_for(dims, available_width) {
+            lines.push(Line::default());
+        }
+        return;
+    }
+    let label = if alt.is_empty() { src } else { alt };
+    let mut text = format!("[image: {label}]");
+    if is_local && dims.is_none() {
+        text.push_str(" (not found)");
+    } else if !is_local && label != src {
+        text.push_str(" (");
+        text.push_str(src);
+        text.push(')');
+    }
+    let span = Span::styled(text, IMAGE_PLACEHOLDER_STYLE);
+    rewrap_styled_line(lines, std::slice::from_ref(&span), 0, 0, available_width);
 }
 
 // ── Code block ──────────────────────────────────────────────────────────

@@ -696,3 +696,103 @@ fn link_text_at_includes_styled_text_inside_a_link() {
     assert_eq!(link_text_at(line, 0), Some("plain bold tail".to_string()));
     assert_eq!(link_text_at(line, 7), Some("plain bold tail".to_string()));
 }
+
+// ── images ──────────────────────────────────────────────────────────────
+
+const IMG_LAYOUT: ImageLayout = ImageLayout { enabled: true, cell_px: (10, 20), max_rows: 24 };
+
+fn flat(line: &Line<'_>) -> String {
+    line.spans.iter().map(|s| s.content.as_ref()).collect()
+}
+
+/// A `w`×`h` PNG at `name` under `dir`.
+fn write_png(dir: &crate::test_util::TempTestDir, name: &str, w: u32, h: u32) {
+    image::RgbImage::new(w, h).save(dir.path().join(name)).unwrap();
+}
+
+#[test]
+fn image_layout_scales_to_width_never_upscales_and_caps() {
+    // 800×600 into 40 columns of 10px: 400px wide → 300px tall → 15 rows of 20px.
+    assert_eq!(IMG_LAYOUT.rows_for((800, 600), Some(40)), 15);
+    // 100×100 is only 10 columns wide; it is not blown up to 80 → 5 rows.
+    assert_eq!(IMG_LAYOUT.rows_for((100, 100), Some(80)), 5);
+    // Tall images stop at max_rows.
+    assert_eq!(IMG_LAYOUT.rows_for((100, 10_000), Some(80)), 24);
+    // No width: the natural size.
+    assert_eq!(IMG_LAYOUT.rows_for((300, 200), None), 10);
+    // Never zero rows.
+    assert_eq!(IMG_LAYOUT.rows_for((1, 1), Some(80)), 1);
+}
+
+#[test]
+fn image_block_resolves_against_base_dir_and_reads_its_size() {
+    let dir = crate::test_util::TempTestDir::new("mdt-test-md-image-block");
+    write_png(&dir, "cat.png", 300, 200);
+    let (blocks, _) =
+        render_markdown_blocks("Look:\n\n![A cat](cat.png)\n\nNice.\n", Some(dir.path()));
+    let img = blocks
+        .iter()
+        .find_map(|b| match b {
+            RenderedBlock::Image { src, alt, path, dims } => Some((src, alt, path, dims)),
+            _ => None,
+        })
+        .expect("an image block");
+    assert_eq!(img.0, "cat.png");
+    assert_eq!(img.1, "A cat");
+    assert_eq!(img.2.as_deref(), Some(dir.path().join("cat.png").as_path()));
+    assert_eq!(*img.3, Some((300, 200)));
+}
+
+#[test]
+fn image_gets_rows_when_enabled_and_a_line_of_text_when_not() {
+    let dir = crate::test_util::TempTestDir::new("mdt-test-md-image-rows");
+    write_png(&dir, "cat.png", 300, 200);
+    let (blocks, _) = render_markdown_blocks("![A cat](cat.png)\n", Some(dir.path()));
+
+    let (lines, starts) = rewrap_blocks(&blocks, Some(80), IMG_LAYOUT);
+    assert_eq!(lines.len(), 10, "300px wide is 30 columns; 200px tall is 10 rows");
+    assert!(lines.iter().all(|l| flat(l).is_empty()), "rows are blank for the picture");
+    assert_eq!(starts, vec![0]);
+
+    let (lines, _) = rewrap_blocks(&blocks, Some(80), ImageLayout::DISABLED);
+    assert_eq!(lines.len(), 1);
+    assert_eq!(flat(&lines[0]), "[image: A cat]");
+    assert!(lines[0].spans[0].style.add_modifier.contains(Modifier::ITALIC));
+
+    // Narrow pane: the image shrinks with it.
+    let (lines, _) = rewrap_blocks(&blocks, Some(15), IMG_LAYOUT);
+    assert_eq!(lines.len(), 5);
+}
+
+#[test]
+fn missing_and_remote_images_are_described_in_text() {
+    let dir = crate::test_util::TempTestDir::new("mdt-test-md-image-missing");
+    let md =
+        "![Lost](nope.png)\n\n![Remote](https://x.example/a.png)\n\n![](https://x.example/b.png)\n";
+    let (blocks, _) = render_markdown_blocks(md, Some(dir.path()));
+    let (lines, _) = rewrap_blocks(&blocks, Some(100), IMG_LAYOUT);
+    let text: Vec<String> = lines.iter().map(flat).filter(|l| !l.is_empty()).collect();
+    assert_eq!(
+        text,
+        [
+            "[image: Lost] (not found)",
+            "[image: Remote] (https://x.example/a.png)",
+            "[image: https://x.example/b.png]",
+        ]
+    );
+}
+
+#[test]
+fn image_in_a_table_cell_is_its_alt_text() {
+    let text = render_markdown("| a | b |\n|---|---|\n| ![pic](p.png) | x |\n", Some(60));
+    let content = text_content(&text);
+    assert!(content.iter().any(|l| l.contains("pic") && l.contains("x")), "{content:?}");
+    assert!(!content.iter().any(|l| l.contains("[image")), "{content:?}");
+}
+
+#[test]
+fn text_around_an_inline_image_keeps_its_order() {
+    let text = render_markdown("before ![a](x.png) after\n", Some(60));
+    let content = text_content(&text);
+    assert_eq!(content, ["before", "[image: a] (not found)", "after"]);
+}

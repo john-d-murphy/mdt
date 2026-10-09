@@ -42,7 +42,7 @@ pub fn draw_preview(frame: &mut Frame, app: &mut App, area: Rect) {
     if new_width != app.document.viewport_width {
         if !app.document.rendered_blocks.is_empty() {
             let (lines, block_line_starts) =
-                rewrap_blocks(&app.document.rendered_blocks, Some(new_width));
+                rewrap_blocks(&app.document.rendered_blocks, Some(new_width), app.images.layout());
             app.document.rendered_lines = lines;
             app.document.block_line_starts = block_line_starts;
             app.document.rebuild_lower_cache();
@@ -115,6 +115,16 @@ pub fn draw_preview(frame: &mut Frame, app: &mut App, area: Rect) {
     let paragraph = Paragraph::new(text).block(block).scroll((0, 0));
     frame.render_widget(paragraph, area);
 
+    // Images go over the rows re-wrapping left for them.
+    app.images.draw(
+        frame,
+        &app.document.rendered_blocks,
+        &app.document.block_line_starts,
+        app.document.rendered_lines.len(),
+        app.document.scroll_offset,
+        inner,
+    );
+
     // Scrollbar: only render when content exceeds viewport.
     let total_lines = app.document.rendered_lines.len();
     let viewport_height = app.document.viewport_height;
@@ -149,7 +159,7 @@ pub fn draw_live_preview(frame: &mut Frame, app: &mut App, area: Rect) {
     if new_width != app.live_preview.viewport_width && !app.live_preview.rendered_blocks.is_empty()
     {
         let (lines, block_line_starts) =
-            rewrap_blocks(&app.live_preview.rendered_blocks, Some(new_width));
+            rewrap_blocks(&app.live_preview.rendered_blocks, Some(new_width), app.images.layout());
         app.live_preview.rendered_lines = lines;
         app.live_preview.block_line_starts = block_line_starts;
         app.live_preview.viewport_width = new_width;
@@ -218,6 +228,16 @@ pub fn draw_live_preview(frame: &mut Frame, app: &mut App, area: Rect) {
 
     let paragraph = Paragraph::new(text).block(block).scroll((0, 0));
     frame.render_widget(paragraph, area);
+
+    // Images over the rows re-wrapping left for them.
+    app.images.draw(
+        frame,
+        &app.live_preview.rendered_blocks,
+        &app.live_preview.block_line_starts,
+        app.live_preview.rendered_lines.len(),
+        app.live_preview.scroll_offset,
+        inner,
+    );
 
     // Scrollbar
     let total_lines = app.live_preview.rendered_lines.len();

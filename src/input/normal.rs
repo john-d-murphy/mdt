@@ -152,6 +152,11 @@ impl App {
             KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.toggle_split_orientation();
             }
+            // Ctrl+i arrives as itself only where the terminal disambiguates it from Tab
+            // (kitty keyboard protocol, requested at startup); elsewhere it is Tab.
+            KeyCode::Char('i') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.toggle_images();
+            }
 
             // --- Mode transitions ---
             KeyCode::Char(':') => {
@@ -465,6 +470,16 @@ mod tests {
         app.document.viewport_height = 10;
         app.focus = Focus::Preview;
         (dir, app)
+    }
+
+    #[test]
+    fn ctrl_i_toggles_images() {
+        let (_dir, mut app) = preview_app("mdt-test-normal-ctrl-i");
+        app.images =
+            crate::images::ImageState::with_picker(ratatui_image::picker::Picker::halfblocks());
+        app.handle_normal_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::CONTROL));
+        assert_eq!(app.status_message, "Images OFF");
+        assert!(!app.images.enabled());
     }
 
     #[test]

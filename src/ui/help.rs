@@ -24,6 +24,7 @@ pub(crate) const HELP_KEYS: &[(&str, &str)] = &[
     ("[/]", "Previous/Next heading"),
     (":w", "Save"),
     (":q", "Quit"),
+    ("Ctrl+i", "Toggle images (:images)"),
     ("o", "Open links"),
     ("a", "New file"),
     ("A", "New directory"),
@@ -113,9 +114,11 @@ mod tests {
                 "{key} is on the card"
             );
         }
-        let last = rows.iter().rposition(|r| r.contains("This help")).unwrap();
+        let half = (HELP_KEYS.len() + 1) / 2;
+        let (_, bottom_left) = HELP_KEYS[half - 1];
+        let last = rows.iter().rposition(|r| r.contains(bottom_left)).unwrap();
         let first_at = rows.iter().position(|r| r.contains("j/k")).unwrap();
-        assert_eq!(last - first_at + 1, (HELP_KEYS.len() + 1) / 2, "half the entries a column");
+        assert_eq!(last - first_at + 1, half, "half the entries a column");
     }
 
     #[test]

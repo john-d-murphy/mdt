@@ -1,6 +1,7 @@
 mod app;
 mod file_ops;
 mod file_tree;
+mod images;
 mod input;
 #[cfg(test)]
 mod integration_tests;
@@ -17,7 +18,10 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use clap::Parser;
-use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind};
+use crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind, KeyboardEnhancementFlags,
+    PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+};
 use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
@@ -26,6 +30,8 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
 use app::App;
+use images::ImageState;
+use ratatui_image::picker::Picker;
 
 const EVENT_POLL_MS: u64 = 50;
 
@@ -43,6 +49,10 @@ struct Cli {
     /// Maximum render width in columns (default: no limit, wrap to terminal width)
     #[arg(long, env = "MDT_MAX_WIDTH", value_parser = clap::value_parser!(u16).range(1..))]
     max_width: Option<u16>,
+
+    /// Don't draw images; `![alt](src)` shows as text (also `MDT_NO_IMAGES=1`)
+    #[arg(long, env = "MDT_NO_IMAGES")]
+    no_images: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -64,6 +74,12 @@ fn main() -> anyhow::Result<()> {
     } else {
         None
     };
+    // The markdown has been read; give the terminal back fd 0 so the queries that follow
+    // (image protocol, font size) hear their replies and key events keep flowing.
+    #[cfg(unix)]
+    if is_stdin {
+        reattach_stdin_to_tty();
+    }
 
     // Pre-warm syntax highlighting on a background thread: loads the SyntaxSet,
     // ScopeMatchers, and pre-compiles regex patterns for common languages so the
@@ -121,6 +137,24 @@ fn main() -> anyhow::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    // Ask for the kitty keyboard protocol's disambiguation, so Ctrl+i (toggle images) arrives
+    // as itself and not as Tab. Terminals that lack it are left alone.
+    let keys_enhanced = crossterm::terminal::supports_keyboard_enhancement().unwrap_or(false);
+    if keys_enhanced {
+        execute!(
+            stdout,
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        )?;
+    }
+
+    // Ask the terminal what graphics it speaks and how big a cell is. Must come before the
+    // first event read, since the reply arrives on stdin.
+    app.images = if cli.no_images {
+        ImageState::disabled()
+    } else {
+        ImageState::with_picker(Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks()))
+    };
+    app.rewrap_views();
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -131,6 +165,7 @@ fn main() -> anyhow::Result<()> {
         let _ = disable_raw_mode();
         let _ = execute!(
             io::stdout(),
+            PopKeyboardEnhancementFlags,
             LeaveAlternateScreen,
             DisableMouseCapture,
             crossterm::cursor::Show
@@ -156,6 +191,9 @@ fn main() -> anyhow::Result<()> {
 
     // --- Terminal teardown (always runs) ---
     disable_raw_mode()?;
+    if keys_enhanced {
+        execute!(terminal.backend_mut(), PopKeyboardEnhancementFlags)?;
+    }
     execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
     terminal.show_cursor()?;
 
@@ -279,5 +317,19 @@ mod tests {
         let b = Path::new("/some/project/notes");
         assert_eq!(lock_path_for(a), lock_path_for(a));
         assert_ne!(lock_path_for(a), lock_path_for(b));
+    }
+}
+
+/// With the markdown read from a pipe, make fd 0 the terminal again: `ratatui-image` reads
+/// the terminal's replies from stdin, and so does crossterm once stdin is a tty.
+#[cfg(unix)]
+fn reattach_stdin_to_tty() {
+    use std::os::fd::AsRawFd;
+    if let Ok(tty) = std::fs::File::open("/dev/tty") {
+        // SAFETY: both descriptors are open and valid; dup2 replaces fd 0 atomically and
+        // `tty` may be dropped afterwards since fd 0 now holds its own reference.
+        unsafe {
+            libc::dup2(tty.as_raw_fd(), libc::STDIN_FILENO);
+        }
     }
 }

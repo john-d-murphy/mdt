@@ -37,6 +37,7 @@ Point `mdt` at a directory and you get a file tree, a fully rendered markdown pr
 - Autolinks
 - Scrollbar that appears when content exceeds the viewport
 - Heading jump navigation (`[` / `]`)
+- Inline images: `![alt](path)` is drawn with the terminal's graphics (kitty, sixel, iTerm2) or as unicode half-blocks elsewhere; `Ctrl+i` / `:images` turns them off, `--no-images` never asks
 - [quine](https://github.com/indeterminacy/homunculus) link lines (`—links-to→ Name [id kind]` items under `## Links out` / `## Links in`) painted like quine's triage: relationship bold yellow, name bold, id cyan, `[dangling]` red, what was said on the edge hung in italic
 
 **Editor**
@@ -104,6 +105,7 @@ Opens the given directory, or opens the given file with the file tree rooted at 
 |------|-------------|
 | `--max-file-size <bytes>` | Maximum file size to open (default: 5 MB) |
 | `--max-width <columns>` | Maximum render width in columns; also `MDT_MAX_WIDTH` env var (default: terminal width) |
+| `--no-images` | Don't draw images, show `[image: alt]` instead; also `MDT_NO_IMAGES=1` |
 
 When `mdt` starts, you'll see the welcome screen. Press `Ctrl+e` to open the file tree, navigate to a markdown file, and press `Enter` to preview it.
 
@@ -164,6 +166,7 @@ When `mdt` starts, you'll see the welcome screen. Press `Ctrl+e` to open the fil
 | `Ctrl+p` | Toggle live preview split |
 | `Ctrl+s` | Swap split orientation (horizontal / vertical) |
 | `:preview` | Toggle live preview (command mode) |
+| `Ctrl+i` / `:images` | Toggle inline images |
 
 ### Search
 
