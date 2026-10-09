@@ -1,11 +1,30 @@
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Position;
 
-use crate::app::{App, Focus};
+use crate::app::{App, Focus, Overlay};
 use crate::ui::preview::PREVIEW_PADDING;
 
 impl App {
     pub(crate) fn handle_mouse(&mut self, mouse: MouseEvent) {
+        // The image viewer takes the wheel to zoom, and closes on a click beside it.
+        if matches!(self.overlay, Overlay::ImageViewer) {
+            match mouse.kind {
+                MouseEventKind::ScrollUp => self.image_viewer.zoom_in(),
+                MouseEventKind::ScrollDown => self.image_viewer.zoom_out(),
+                MouseEventKind::Down(MouseButton::Left) => {
+                    let inside = self
+                        .image_viewer
+                        .area
+                        .is_some_and(|r| r.contains(Position::new(mouse.column, mouse.row)));
+                    if !inside {
+                        self.close_image_viewer();
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
+
         match mouse.kind {
             MouseEventKind::ScrollDown => {
                 if self.is_in_preview(mouse.column, mouse.row) {
@@ -32,7 +51,7 @@ impl App {
             MouseEventKind::Down(MouseButton::Left) => {
                 if self.is_in_preview(mouse.column, mouse.row) {
                     self.focus = Focus::Preview;
-                    self.click_preview_link(mouse.column, mouse.row);
+                    self.click_preview(mouse.column, mouse.row);
                 } else if self.is_in_file_list(mouse.column, mouse.row) {
                     self.focus = Focus::FileList;
                 }
@@ -41,8 +60,9 @@ impl App {
         }
     }
 
-    /// Open the link under a left click in the preview pane, if the click landed on one.
-    fn click_preview_link(&mut self, col: u16, row: u16) {
+    /// Act on a left click in the preview pane: an image opens in the viewer, a link opens
+    /// with the system handler, anything else just moves the focus (already done).
+    fn click_preview(&mut self, col: u16, row: u16) {
         let Some(area) = self.preview_area else { return };
         let x0 = area.x + PREVIEW_PADDING.left;
         let y0 = area.y + PREVIEW_PADDING.top;
@@ -50,6 +70,10 @@ impl App {
             return;
         }
         let line_idx = self.document.scroll_offset + usize::from(row - y0);
+        if let Some(path) = self.document.image_at(line_idx).cloned() {
+            self.open_image_viewer(path);
+            return;
+        }
         let url = self.document.link_at(line_idx, usize::from(col - x0)).map(|l| l.url.clone());
         if let Some(url) = url {
             self.open_url(url);

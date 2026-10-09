@@ -112,14 +112,16 @@ impl App {
 
     /// Re-render preview from new file content, preserving scroll position.
     fn reload_preview_content(&mut self, new_content: &str) {
-        let (blocks, links) = render_markdown_blocks(new_content);
+        let base_dir = self.document.current_file.as_deref().and_then(std::path::Path::parent);
+        let (blocks, links) = render_markdown_blocks(new_content, base_dir);
         let links = deduplicate_links(links);
         let width = if self.document.viewport_width > 0 {
             Some(self.document.viewport_width)
         } else {
             None
         };
-        let (rendered, block_line_starts) = rewrap_blocks(&blocks, width);
+        self.images.clear_cache();
+        let (rendered, block_line_starts) = rewrap_blocks(&blocks, width, self.images.layout());
 
         self.document.rendered_lines = rendered;
         self.document.rebuild_lower_cache();

@@ -3,6 +3,7 @@
 mod document;
 mod event;
 mod file_finder;
+mod image_viewer;
 mod link_picker;
 mod state;
 mod tree;
@@ -21,7 +22,7 @@ use tui_tree_widget::TreeState;
 use crate::file_tree;
 use crate::markdown::{
     deduplicate_links, render_markdown_blocks, render_markdown_blocks_with_source_map,
-    rewrap_blocks,
+    rewrap_blocks, ImageLayout,
 };
 
 pub use types::{AppMode, Focus};
@@ -59,6 +60,10 @@ pub struct App {
     pub(crate) file_list_area: Option<ratatui::layout::Rect>,
     pub(crate) live_preview: LivePreviewState,
     pub(crate) stdin_mode: bool,
+    /// Terminal graphics for inline images.
+    pub(crate) images: crate::images::ImageState,
+    /// The image viewer overlay — which picture is open, and how it is being looked at.
+    pub(crate) image_viewer: crate::images::ImageViewerState,
 }
 
 impl App {
@@ -152,6 +157,8 @@ impl App {
             file_list_area: None,
             live_preview: LivePreviewState::default(),
             stdin_mode: false,
+            images: crate::images::ImageState::disabled(),
+            image_viewer: crate::images::ImageViewerState::default(),
         };
 
         if let Some(file) = initial_file {
@@ -165,10 +172,10 @@ impl App {
     pub fn from_stdin(content: String, bg_color: ratatui::style::Color) -> Self {
         let (init_width, init_height) = crossterm::terminal::size().unwrap_or((80, 24));
 
-        let (blocks, links) = render_markdown_blocks(&content);
+        let (blocks, links) = render_markdown_blocks(&content, None);
         let links = deduplicate_links(links);
         let width = if init_width > 0 { Some(init_width as usize) } else { None };
-        let (rendered, block_line_starts) = rewrap_blocks(&blocks, width);
+        let (rendered, block_line_starts) = rewrap_blocks(&blocks, width, ImageLayout::DISABLED);
 
         let mut document = DocumentState {
             current_file: None,
@@ -217,6 +224,8 @@ impl App {
             file_list_area: None,
             live_preview: LivePreviewState::default(),
             stdin_mode: true,
+            images: crate::images::ImageState::disabled(),
+            image_viewer: crate::images::ImageViewerState::default(),
         }
     }
 
@@ -269,13 +278,52 @@ impl App {
         };
     }
 
+    /// Re-wrap the document and the live preview from their cached blocks at their current
+    /// widths — after the image layout changes (the terminal answered, or `:images`).
+    pub(crate) fn rewrap_views(&mut self) {
+        let layout = self.images.layout();
+        if !self.document.rendered_blocks.is_empty() {
+            let width = (self.document.viewport_width > 0).then_some(self.document.viewport_width);
+            let (lines, starts) = rewrap_blocks(&self.document.rendered_blocks, width, layout);
+            self.document.rendered_lines = lines;
+            self.document.block_line_starts = starts;
+            self.document.rebuild_lower_cache();
+            self.document.rebuild_heading_index();
+            self.document.clamp_scroll();
+        }
+        if !self.live_preview.rendered_blocks.is_empty() {
+            let width =
+                (self.live_preview.viewport_width > 0).then_some(self.live_preview.viewport_width);
+            let (lines, starts) = rewrap_blocks(&self.live_preview.rendered_blocks, width, layout);
+            self.live_preview.rendered_lines = lines;
+            self.live_preview.block_line_starts = starts;
+        }
+    }
+
+    /// `:images` / `Ctrl+i`: flip images on or off, re-wrap, and say so in the status bar.
+    pub(crate) fn toggle_images(&mut self) {
+        if !self.images.available() {
+            self.status_message = "Images are off for this run (--no-images)".to_string();
+            return;
+        }
+        let on = self.images.toggle();
+        self.rewrap_views();
+        self.status_message = if on {
+            format!("Images ON ({})", self.images.protocol_name())
+        } else {
+            "Images OFF".to_string()
+        };
+    }
+
     /// Re-render live preview from editor buffer content.
     pub(crate) fn update_live_preview(&mut self) {
         let Some(ref textarea) = self.editor.textarea else {
             return;
         };
         let content = textarea.lines().join("\n");
-        let (blocks, _links, source_lines) = render_markdown_blocks_with_source_map(&content);
+        let base_dir = self.document.current_file.as_deref().and_then(Path::parent);
+        let (blocks, _links, source_lines) =
+            render_markdown_blocks_with_source_map(&content, base_dir);
         let width = if self.live_preview.viewport_width > 0 {
             Some(self.live_preview.viewport_width)
         } else if self.document.viewport_width > 0 {
@@ -283,7 +331,7 @@ impl App {
         } else {
             None
         };
-        let (rendered, block_line_starts) = rewrap_blocks(&blocks, width);
+        let (rendered, block_line_starts) = rewrap_blocks(&blocks, width, self.images.layout());
         self.live_preview.rendered_lines = rendered;
         self.live_preview.rendered_blocks = blocks;
         self.live_preview.block_line_starts = block_line_starts;
@@ -315,14 +363,15 @@ impl App {
             return;
         };
 
-        let (blocks, links) = render_markdown_blocks(&content);
+        let (blocks, links) = render_markdown_blocks(&content, path.parent());
         let links = deduplicate_links(links);
         let width = if self.document.viewport_width > 0 {
             Some(self.document.viewport_width)
         } else {
             None
         };
-        let (rendered, block_line_starts) = rewrap_blocks(&blocks, width);
+        self.images.clear_cache();
+        let (rendered, block_line_starts) = rewrap_blocks(&blocks, width, self.images.layout());
         self.document.rendered_lines = rendered;
         self.document.rebuild_lower_cache();
         self.document.block_line_starts = block_line_starts;

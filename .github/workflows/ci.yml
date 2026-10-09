@@ -1,9 +1,11 @@
 name: CI
 
 on:
-  push:
-    branches: [main, master]
+  # Every pull request, wherever it is based: opened, pushed to, or reopened.
   pull_request:
+    types: [opened, synchronize, reopened]
+  # Plus the default branch itself, so a merge is still checked.
+  push:
     branches: [main, master]
   workflow_call:
 

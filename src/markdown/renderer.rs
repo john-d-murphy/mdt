@@ -6,6 +6,8 @@ use ratatui::text::Span;
 use unicode_width::UnicodeWidthStr;
 
 use super::blocks::RenderedBlock;
+use std::path::{Path, PathBuf};
+
 use super::link_line::{parse_link_line, Tail};
 use super::syntax::highlight_code;
 use super::theme::*;
@@ -24,6 +26,26 @@ pub(crate) fn humanize_url(url: &str) -> String {
     let stripped = stripped.strip_prefix("www.").unwrap_or(stripped);
     let stripped = stripped.strip_suffix('/').unwrap_or(stripped);
     stripped.to_string()
+}
+
+/// Where an image's `src` points on disk, and its pixel size if that file can be read.
+/// URLs and data URIs resolve to nothing: only local files are drawn. A `file://` prefix,
+/// and any `?query` or `#fragment`, are dropped.
+fn resolve_image(src: &str, base_dir: Option<&Path>) -> (Option<PathBuf>, Option<(u32, u32)>) {
+    let lower = src.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("data:") {
+        return (None, None);
+    }
+    let src = src.strip_prefix("file://").unwrap_or(src);
+    let src = src.split(['?', '#']).next().unwrap_or(src);
+    let path = Path::new(src);
+    let path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        base_dir.unwrap_or_else(|| Path::new(".")).join(path)
+    };
+    let dims = image::image_dimensions(&path).ok();
+    (Some(path), dims)
 }
 
 /// Deduplicate links by URL, preferring entries with descriptive display text.
@@ -100,6 +122,10 @@ pub(super) struct Renderer {
     pub(super) table_cell_spans: Vec<Span<'static>>,
     /// Whether we're in the header row.
     pub(super) in_table_header: bool,
+    /// Where an image's relative `src` resolves from (the document's directory).
+    pub(super) base_dir: Option<PathBuf>,
+    /// The image being read — its `src` and the alt text gathered so far.
+    pub(super) image: Option<(String, String)>,
 }
 
 impl Renderer {
@@ -130,7 +156,14 @@ impl Renderer {
             in_link_item: false,
             block_source_offsets: Vec::new(),
             last_event_offset: 0,
+            base_dir: None,
+            image: None,
         }
+    }
+
+    pub(super) fn with_base_dir(mut self, base_dir: Option<&Path>) -> Self {
+        self.base_dir = base_dir.map(Path::to_path_buf);
+        self
     }
 
     pub(super) fn run<'a>(&mut self, parser: impl Iterator<Item = Event<'a>>) {
@@ -285,8 +318,13 @@ impl Renderer {
             Tag::TableCell => {
                 self.table_cell_spans.clear();
             }
-            Tag::Image { .. }
-            | Tag::FootnoteDefinition(_)
+            Tag::Image { dest_url, .. } => {
+                if !self.in_table {
+                    self.flush_line();
+                }
+                self.image = Some((dest_url.to_string(), String::new()));
+            }
+            Tag::FootnoteDefinition(_)
             | Tag::HtmlBlock
             | Tag::MetadataBlock(_)
             | Tag::DefinitionList
@@ -380,8 +418,8 @@ impl Renderer {
                 self.table_rows.clear();
                 self.needs_newline = true;
             }
-            TagEnd::Image
-            | TagEnd::FootnoteDefinition
+            TagEnd::Image => self.end_image(),
+            TagEnd::FootnoteDefinition
             | TagEnd::HtmlBlock
             | TagEnd::MetadataBlock(_)
             | TagEnd::DefinitionList
@@ -397,6 +435,13 @@ impl Renderer {
     fn on_text(&mut self, text: &str) {
         if self.in_code_block {
             self.code_block_buf.push_str(text);
+            return;
+        }
+        if let Some((_, alt)) = self.image.as_mut() {
+            alt.push_str(text);
+            if self.link_dest.is_some() {
+                self.link_text.push_str(text);
+            }
             return;
         }
 
@@ -431,6 +476,10 @@ impl Renderer {
     }
 
     fn on_inline_code(&mut self, code: &str) {
+        if let Some((_, alt)) = self.image.as_mut() {
+            alt.push_str(code);
+            return;
+        }
         if self.link_dest.is_some() {
             self.link_text.push_str(code);
         }
@@ -452,6 +501,10 @@ impl Renderer {
             self.code_block_buf.push('\n');
             return;
         }
+        if let Some((_, alt)) = self.image.as_mut() {
+            alt.push(' ');
+            return;
+        }
         if self.in_table {
             self.table_cell_spans.push(Span::styled(" ", self.current_style()));
             return;
@@ -463,6 +516,22 @@ impl Renderer {
 
     fn on_hard_break(&mut self) {
         self.flush_line();
+    }
+
+    /// Close `![alt](src)`: in a table the alt text stands in; elsewhere the image becomes
+    /// a block of its own, resolved against `base_dir` and measured if it can be read.
+    fn end_image(&mut self) {
+        let Some((src, alt)) = self.image.take() else { return };
+        if self.in_table {
+            let style = self.current_style();
+            let label = if alt.is_empty() { src } else { alt };
+            self.table_cell_spans.push(Span::styled(label, style));
+            return;
+        }
+        self.flush_line();
+        let (path, dims) = resolve_image(&src, self.base_dir.as_deref());
+        self.blocks.push(RenderedBlock::Image { src, alt, path, dims });
+        self.needs_newline = true;
     }
 
     fn on_rule(&mut self) {
