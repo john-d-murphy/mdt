@@ -18,7 +18,7 @@ pub struct LinkInfo {
 }
 
 /// Convert a raw URL into a human-readable label by stripping scheme and www prefix.
-fn humanize_url(url: &str) -> String {
+pub(crate) fn humanize_url(url: &str) -> String {
     let stripped =
         url.strip_prefix("https://").or_else(|| url.strip_prefix("http://")).unwrap_or(url);
     let stripped = stripped.strip_prefix("www.").unwrap_or(stripped);

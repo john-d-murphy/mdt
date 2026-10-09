@@ -2,6 +2,7 @@ use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Position;
 
 use crate::app::{App, Focus};
+use crate::ui::preview::PREVIEW_PADDING;
 
 impl App {
     pub(crate) fn handle_mouse(&mut self, mouse: MouseEvent) {
@@ -31,11 +32,27 @@ impl App {
             MouseEventKind::Down(MouseButton::Left) => {
                 if self.is_in_preview(mouse.column, mouse.row) {
                     self.focus = Focus::Preview;
+                    self.click_preview_link(mouse.column, mouse.row);
                 } else if self.is_in_file_list(mouse.column, mouse.row) {
                     self.focus = Focus::FileList;
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Open the link under a left click in the preview pane, if the click landed on one.
+    fn click_preview_link(&mut self, col: u16, row: u16) {
+        let Some(area) = self.preview_area else { return };
+        let x0 = area.x + PREVIEW_PADDING.left;
+        let y0 = area.y + PREVIEW_PADDING.top;
+        if col < x0 || row < y0 {
+            return;
+        }
+        let line_idx = self.document.scroll_offset + usize::from(row - y0);
+        let url = self.document.link_at(line_idx, usize::from(col - x0)).map(|l| l.url.clone());
+        if let Some(url) = url {
+            self.open_url(url);
         }
     }
 
@@ -73,6 +90,90 @@ mod tests {
         app.file_list_area = Some(Rect::new(0, 0, 30, 24));
         app.preview_area = Some(Rect::new(30, 0, 50, 24));
         (dir, app)
+    }
+
+    /// Open `markdown` as the document, with the preview pane at (30, 0) 50x24; return the
+    /// app and the display column where `needle` starts on the first rendered line.
+    fn setup_with_link(name: &str, markdown: &str, needle: &str) -> (TempTestDir, App, u16) {
+        use unicode_width::UnicodeWidthStr;
+        let dir = TempTestDir::new(name);
+        dir.create_file("test.md", markdown);
+        let mut app = App::new(dir.path(), Color::Reset).unwrap();
+        app.open_file(&dir.path().join("test.md"));
+        app.document.viewport_height = 10;
+        app.preview_area = Some(Rect::new(30, 0, 50, 24));
+
+        let line = &app.document.rendered_lines[0];
+        let flat: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        let byte = flat.find(needle).unwrap_or_else(|| panic!("{needle:?} not in {flat:?}"));
+        let col = flat[..byte].width() as u16;
+        (dir, app, col)
+    }
+
+    #[test]
+    fn click_on_link_text_opens_it() {
+        let (_dir, mut app, col) = setup_with_link(
+            "mdt-test-mouse-click-link",
+            "See [the docs](https://example.com/docs) now.\n",
+            "the docs",
+        );
+        // Content starts at x = 30 + 2 (left padding), y = 0 + 1 (top padding).
+        app.handle_mouse(mouse_event(MouseEventKind::Down(MouseButton::Left), 32 + col + 3, 1));
+        assert_eq!(app.status_message, "Opening: https://example.com/docs");
+        assert_eq!(app.focus, Focus::Preview);
+    }
+
+    #[test]
+    fn click_on_plain_text_opens_nothing() {
+        let (_dir, mut app, col) = setup_with_link(
+            "mdt-test-mouse-click-plain",
+            "See [the docs](https://example.com/docs) now.\n",
+            "See",
+        );
+        app.status_message.clear();
+        app.handle_mouse(mouse_event(MouseEventKind::Down(MouseButton::Left), 32 + col, 1));
+        assert_eq!(app.status_message, "");
+    }
+
+    #[test]
+    fn click_on_autolink_resolves_despite_humanised_label() {
+        let (_dir, mut app, col) = setup_with_link(
+            "mdt-test-mouse-click-autolink",
+            "Go to <https://www.example.com/path/> today.\n",
+            "https://www",
+        );
+        assert_eq!(app.document.links[0].display_text, "example.com/path");
+        app.handle_mouse(mouse_event(MouseEventKind::Down(MouseButton::Left), 32 + col + 5, 1));
+        assert_eq!(app.status_message, "Opening: https://www.example.com/path/");
+    }
+
+    #[test]
+    fn click_accounts_for_scroll_offset() {
+        let md = (0..5).map(|i| format!("para {i}")).collect::<Vec<_>>().join("\n\n")
+            + "\n\n[last](https://example.com/last)\n";
+        let (_dir, mut app, _) = setup_with_link("mdt-test-mouse-click-scrolled", &md, "para 0");
+        let link_line = app
+            .document
+            .rendered_lines
+            .iter()
+            .position(|l| l.spans.iter().any(|s| s.content.contains("last")))
+            .unwrap();
+        app.document.scroll_offset = link_line; // link now on the first visible row
+        app.handle_mouse(mouse_event(MouseEventKind::Down(MouseButton::Left), 32 + 1, 1));
+        assert_eq!(app.status_message, "Opening: https://example.com/last");
+    }
+
+    #[test]
+    fn click_in_padding_row_opens_nothing() {
+        let (_dir, mut app, col) = setup_with_link(
+            "mdt-test-mouse-click-padding",
+            "[the docs](https://example.com/docs)\n",
+            "the docs",
+        );
+        app.status_message.clear();
+        // Row 0 is the top padding row, above the first rendered line.
+        app.handle_mouse(mouse_event(MouseEventKind::Down(MouseButton::Left), 32 + col, 0));
+        assert_eq!(app.status_message, "");
     }
 
     #[test]

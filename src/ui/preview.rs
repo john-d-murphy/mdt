@@ -17,13 +17,17 @@ use crate::markdown::rewrap_blocks;
 /// Draw the preview pane with virtual scrolling.
 ///
 /// # Side Effects (Intentional)
+/// Padding between the preview pane's area and its first rendered line. Mouse hit-testing
+/// (clicking a link) maps terminal cells back through this.
+pub(crate) const PREVIEW_PADDING: Padding = Padding::new(2, 2, 1, 0);
+
 /// This function updates `app.document.viewport_height` and `app.document.viewport_width`
 /// on every frame. This follows Ratatui's `StatefulWidget` pattern where layout-dependent
 /// state is updated during render, since the actual viewport dimensions are only known at
 /// render time (they depend on terminal size, file tree visibility, and padding).
 /// Input handlers (scroll, search) depend on these values being current.
 pub fn draw_preview(frame: &mut Frame, app: &mut App, area: Rect) {
-    let block = Block::default().padding(Padding::new(2, 2, 1, 0));
+    let block = Block::default().padding(PREVIEW_PADDING);
 
     // Inner area height (excluding borders) is the viewport.
     let inner = block.inner(area);

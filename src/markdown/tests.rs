@@ -674,3 +674,25 @@ fn nested_list_indentation_survives_wrapping() {
     assert_eq!(content, ["• outer", "  ◦ inner", "    ▪ deep"]);
 }
 
+// ── link hit-testing ────────────────────────────────────────────────────
+
+#[test]
+fn link_text_at_finds_the_link_run_and_nothing_else() {
+    let text = render_at_width("See [the docs](https://x.example) and `code` here.", 80);
+    let line = &text.lines[0];
+    let flat: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+    let at = |needle: &str| flat.find(needle).unwrap();
+    assert_eq!(link_text_at(line, at("the docs")), Some("the docs".to_string()));
+    assert_eq!(link_text_at(line, at("docs") + 2), Some("the docs".to_string()));
+    assert_eq!(link_text_at(line, at("See")), None);
+    assert_eq!(link_text_at(line, at("code")), None);
+    assert_eq!(link_text_at(line, 500), None);
+}
+
+#[test]
+fn link_text_at_includes_styled_text_inside_a_link() {
+    let text = render_at_width("[plain **bold** tail](https://x.example)", 80);
+    let line = &text.lines[0];
+    assert_eq!(link_text_at(line, 0), Some("plain bold tail".to_string()));
+    assert_eq!(link_text_at(line, 7), Some("plain bold tail".to_string()));
+}

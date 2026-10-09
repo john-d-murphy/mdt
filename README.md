@@ -64,7 +64,7 @@ Point `mdt` at a directory and you get a file tree, a fully rendered markdown pr
 
 **Terminal integration**
 
-- Mouse support: scroll wheel to scroll, click to switch panes
+- Mouse support: scroll wheel to scroll, click to switch panes, click a link to open it
 - Width-aware text wrapping for paragraphs, headings, blockquotes, and lists
 - Code block and table truncation for narrow terminals
 - Terminal background color detection (prevents transparency bleed)

@@ -102,6 +102,30 @@ impl DocumentState {
         }
     }
 
+    /// The document link under display column `col` of rendered line `line_idx`, if any.
+    ///
+    /// Rendered spans carry no URL, so the link-styled text under the cursor is matched back
+    /// to the collected links: by display text, by URL, or by the humanised URL an autolink is
+    /// listed under; failing that, a wrapped fragment matches the first link containing it.
+    pub(crate) fn link_at(&self, line_idx: usize, col: usize) -> Option<&LinkInfo> {
+        let line = self.rendered_lines.get(line_idx)?;
+        let text = crate::markdown::link_text_at(line, col)?;
+        let text = text.trim();
+        if text.is_empty() {
+            return None;
+        }
+        self.links
+            .iter()
+            .find(|l| {
+                l.display_text == text
+                    || l.url == text
+                    || crate::markdown::humanize_url(&l.url) == text
+            })
+            .or_else(|| {
+                self.links.iter().find(|l| l.display_text.contains(text) || l.url.contains(text))
+            })
+    }
+
     /// Scroll so that `line` is visible near the top of the viewport.
     pub(crate) fn scroll_to_line(&mut self, line: usize) {
         self.scroll_offset = line.saturating_sub(2);
