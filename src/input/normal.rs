@@ -103,6 +103,11 @@ impl App {
             },
 
             // --- g: start pending key for gg (both focuses) ---
+            // --- Ctrl+g: images on or off (before the plain `g` arm, which starts `gg`).
+            //     Not Ctrl+i: a terminal sends that as Tab, mdt's focus key. ---
+            KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.toggle_images();
+            }
             KeyCode::Char('g') => {
                 self.pending_key = Some(('g', Instant::now()));
             }
@@ -151,11 +156,6 @@ impl App {
             }
             KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.toggle_split_orientation();
-            }
-            // Ctrl+i arrives as itself only where the terminal disambiguates it from Tab
-            // (kitty keyboard protocol, requested at startup); elsewhere it is Tab.
-            KeyCode::Char('i') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.toggle_images();
             }
 
             // --- Mode transitions ---
@@ -473,13 +473,14 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_i_toggles_images() {
-        let (_dir, mut app) = preview_app("mdt-test-normal-ctrl-i");
+    fn ctrl_g_toggles_images_without_starting_gg() {
+        let (_dir, mut app) = preview_app("mdt-test-normal-ctrl-g");
         app.images =
             crate::images::ImageState::with_picker(ratatui_image::picker::Picker::halfblocks());
-        app.handle_normal_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::CONTROL));
+        app.handle_normal_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::CONTROL));
         assert_eq!(app.status_message, "Images OFF");
         assert!(!app.images.enabled());
+        assert!(app.pending_key.is_none(), "Ctrl+g is not the start of gg");
     }
 
     #[test]

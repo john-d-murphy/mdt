@@ -58,16 +58,22 @@ impl ImageLayout {
     /// Images drawn as a line of text, never as rows.
     pub const DISABLED: ImageLayout = ImageLayout { enabled: false, cell_px: (8, 16), max_rows: 0 };
 
-    /// Rows a `w`×`h` pixel image takes: as wide as its pixels allow up to the available
-    /// columns (never upscaled), its height scaled to match, then capped at `max_rows`.
-    pub fn rows_for(self, (w, h): (u32, u32), available_width: Option<usize>) -> u16 {
+    /// Columns and rows a `w`×`h` pixel image takes: as wide as its pixels allow up to the
+    /// available columns (never upscaled), its height scaled to match, then capped at
+    /// `max_rows`.
+    pub fn size_for(self, (w, h): (u32, u32), available_width: Option<usize>) -> (u16, u16) {
         let (cw, ch) = (u64::from(self.cell_px.0.max(1)), u64::from(self.cell_px.1.max(1)));
         let (w, h) = (u64::from(w.max(1)), u64::from(h.max(1)));
         let natural_cols = (w + cw - 1) / cw;
         let cols = available_width.map_or(natural_cols, |a| natural_cols.min(a as u64)).max(1);
         let h_px = h * (cols * cw) / w;
         let rows = ((h_px + ch - 1) / ch).max(1).min(u64::from(self.max_rows.max(1)));
-        u16::try_from(rows).unwrap_or(u16::MAX)
+        (u16::try_from(cols).unwrap_or(u16::MAX), u16::try_from(rows).unwrap_or(u16::MAX))
+    }
+
+    /// Just the rows of [`Self::size_for`].
+    pub fn rows_for(self, dims: (u32, u32), available_width: Option<usize>) -> u16 {
+        self.size_for(dims, available_width).1
     }
 }
 

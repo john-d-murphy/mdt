@@ -18,10 +18,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use clap::Parser;
-use crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind, KeyboardEnhancementFlags,
-    PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
-};
+use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
@@ -137,16 +134,6 @@ fn main() -> anyhow::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    // Ask for the kitty keyboard protocol's disambiguation, so Ctrl+i (toggle images) arrives
-    // as itself and not as Tab. Terminals that lack it are left alone.
-    let keys_enhanced = crossterm::terminal::supports_keyboard_enhancement().unwrap_or(false);
-    if keys_enhanced {
-        execute!(
-            stdout,
-            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
-        )?;
-    }
-
     // Ask the terminal what graphics it speaks and how big a cell is. Must come before the
     // first event read, since the reply arrives on stdin.
     app.images = if cli.no_images {
@@ -165,7 +152,6 @@ fn main() -> anyhow::Result<()> {
         let _ = disable_raw_mode();
         let _ = execute!(
             io::stdout(),
-            PopKeyboardEnhancementFlags,
             LeaveAlternateScreen,
             DisableMouseCapture,
             crossterm::cursor::Show
@@ -191,9 +177,6 @@ fn main() -> anyhow::Result<()> {
 
     // --- Terminal teardown (always runs) ---
     disable_raw_mode()?;
-    if keys_enhanced {
-        execute!(terminal.backend_mut(), PopKeyboardEnhancementFlags)?;
-    }
     execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
     terminal.show_cursor()?;
 

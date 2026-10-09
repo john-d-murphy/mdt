@@ -44,10 +44,6 @@ impl App {
         }
 
         match key.code {
-            // Ctrl+i toggles images (before the plain `i` arm, which would swallow it).
-            KeyCode::Char('i') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.toggle_images();
-            }
             // Enter Insert mode in editor.
             KeyCode::Char('i') => {
                 self.mode = AppMode::Insert;
@@ -75,6 +71,10 @@ impl App {
             }
             KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.toggle_split_orientation();
+            }
+            // Ctrl+g: images on or off (before the plain `g` arm, which starts `gg`).
+            KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.toggle_images();
             }
             // Leader key for composed commands (gg).
             KeyCode::Char('g') => {
