@@ -12,6 +12,7 @@ use pulldown_cmark::{Options, Parser};
 use ratatui::text::Span;
 
 pub(crate) mod blocks;
+mod link_line;
 pub(crate) mod syntax;
 mod wrap;
 use syntax::no_color;

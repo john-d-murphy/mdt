@@ -6,6 +6,7 @@ use ratatui::text::Span;
 use unicode_width::UnicodeWidthStr;
 
 use super::blocks::RenderedBlock;
+use super::link_line::{parse_link_line, Tail};
 use super::syntax::highlight_code;
 use super::theme::*;
 
@@ -78,6 +79,11 @@ pub(super) struct Renderer {
     /// Whether we're inside a heading (to apply heading style to all text).
     /// Width of the current list marker (indent + bullet/number) for hanging indent.
     pub(super) list_marker_width: usize,
+    /// How many leading spans of the current line are the list marker (0: none on this line).
+    pub(super) marker_spans: usize,
+    /// Whether the current list item is a quine link line, so the hard-broken lines under it
+    /// are what was said on the edge: hung and italic.
+    pub(super) in_link_item: bool,
     /// Source byte offset for each block (populated by `run_with_offsets`).
     pub(super) block_source_offsets: Vec<usize>,
     /// Byte offset of the most recently seen event (for final flush).
@@ -120,6 +126,8 @@ impl Renderer {
             table_cell_spans: Vec::new(),
             in_table_header: false,
             list_marker_width: 0,
+            marker_spans: 0,
+            in_link_item: false,
             block_source_offsets: Vec::new(),
             last_event_offset: 0,
         }
@@ -328,6 +336,8 @@ impl Renderer {
                 self.flush_line();
                 self.pending_list_marker = false;
                 self.list_marker_width = 0;
+                self.marker_spans = 0;
+                self.in_link_item = false;
             }
             TagEnd::Link => {
                 self.style_stack.pop();
@@ -567,6 +577,55 @@ impl Renderer {
         // Store the marker width for hanging indent on wrapped continuation lines.
         self.list_marker_width =
             self.current_spans.iter().map(|s| UnicodeWidthStr::width(s.content.as_ref())).sum();
+        self.marker_spans = self.current_spans.len();
+    }
+
+    /// If the spans after the list marker read as a quine link line, repaint them the way
+    /// quine's triage does: marker cyan, `—rel→` bold yellow, the name bold, `[` `]` plain,
+    /// the id cyan with no code padding, the kind dim, `[dangling]` red — two spaces between
+    /// the parts. `None` for any other item.
+    fn restyle_link_line(
+        spans: &[Span<'static>],
+        marker_spans: usize,
+    ) -> Option<Vec<Span<'static>>> {
+        // Rebuild the item's text; an inline code span goes back into backticks.
+        let text: String = spans[marker_spans..]
+            .iter()
+            .map(|s| {
+                if s.style == INLINE_CODE_STYLE {
+                    format!("`{}`", s.content.trim())
+                } else {
+                    s.content.to_string()
+                }
+            })
+            .collect();
+        let link = parse_link_line(&text)?;
+
+        let mut out: Vec<Span<'static>> = spans[..marker_spans]
+            .iter()
+            .map(|s| Span::styled(s.content.clone(), s.style.patch(LINK_LINE_MARKER_STYLE)))
+            .collect();
+        // The marker ends in one space; the triage sets two between parts.
+        out.push(Span::raw(" "));
+        out.push(Span::styled(link.edge, LINK_LINE_EDGE_STYLE));
+        out.push(Span::raw("  "));
+        out.push(Span::styled(link.name, LINK_LINE_NAME_STYLE));
+        match link.tail {
+            Tail::Dangling => {
+                out.push(Span::raw("  "));
+                out.push(Span::styled("[dangling]", LINK_LINE_DANGLING_STYLE));
+            }
+            Tail::Node { id, kind } => {
+                out.push(Span::raw("  ["));
+                out.push(Span::styled(id, LINK_LINE_ID_STYLE));
+                if let Some(kind) = kind {
+                    out.push(Span::raw(" "));
+                    out.push(Span::styled(kind, LINK_LINE_KIND_STYLE));
+                }
+                out.push(Span::raw("]"));
+            }
+        }
+        Some(out)
     }
 
     fn list_indent_prefix(&self) -> String {
@@ -599,12 +658,40 @@ impl Renderer {
         if self.current_spans.is_empty() {
             return;
         }
-        let spans = std::mem::take(&mut self.current_spans);
+        let mut spans = std::mem::take(&mut self.current_spans);
+        let mut list_marker_width = self.list_marker_width;
+
+        let marker_spans = std::mem::take(&mut self.marker_spans);
+        if marker_spans > 0 {
+            // The first line of a list item: a quine link line gets the triage's paint.
+            self.in_link_item = false;
+            if let Some(painted) = Self::restyle_link_line(&spans, marker_spans) {
+                // Wrapped head lines hang under the edge, after the widened marker.
+                list_marker_width = painted[..=marker_spans]
+                    .iter()
+                    .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
+                    .sum();
+                self.list_marker_width = list_marker_width;
+                spans = painted;
+                self.in_link_item = true;
+            }
+        } else if self.in_link_item {
+            // What was said on the edge: hung six columns in from the item, italic.
+            let hang = self.list_indent_prefix().len() + LINK_LINE_HANG_COLS;
+            let mut indented = vec![Span::raw(" ".repeat(hang))];
+            indented.extend(
+                spans
+                    .into_iter()
+                    .map(|s| Span::styled(s.content, s.style.patch(LINK_LINE_PROSE_STYLE))),
+            );
+            spans = indented;
+            list_marker_width = hang;
+        }
 
         self.blocks.push(RenderedBlock::StyledLine {
             spans,
             blockquote_depth: self.blockquote_depth,
-            list_marker_width: self.list_marker_width,
+            list_marker_width,
             heading_level: self.heading_level,
         });
     }

@@ -37,6 +37,7 @@ Point `mdt` at a directory and you get a file tree, a fully rendered markdown pr
 - Autolinks
 - Scrollbar that appears when content exceeds the viewport
 - Heading jump navigation (`[` / `]`)
+- [quine](https://github.com/indeterminacy/homunculus) link lines (`—links-to→ Name [id kind]` items under `## Links out` / `## Links in`) painted like quine's triage: relationship bold yellow, name bold, id cyan, `[dangling]` red, what was said on the edge hung in italic
 
 **Editor**
 
