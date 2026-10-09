@@ -191,11 +191,8 @@ pub fn draw_live_preview(frame: &mut Frame, app: &mut App, area: Rect) {
             let max_preview_scroll =
                 app.live_preview.rendered_lines.len().saturating_sub(viewport_height);
 
-            if max_editor_scroll == 0 {
-                app.live_preview.scroll_offset = 0;
-            } else {
-                app.live_preview.scroll_offset = (new_est * max_preview_scroll) / max_editor_scroll;
-            }
+            app.live_preview.scroll_offset =
+                (new_est * max_preview_scroll).checked_div(max_editor_scroll).unwrap_or(0);
         }
         app.live_preview.estimated_scroll_top = new_est;
     }
