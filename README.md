@@ -14,7 +14,7 @@ Point `mdt` at a directory and you get a file tree, a fully rendered markdown pr
 
 - Collapsible file tree with directory navigation
 - File search/filter that narrows the tree as you type
-- Toggle the file tree on or off with a leader key
+- Toggle the file tree on or off with `Ctrl+e`
 - File management: create, delete, rename, and move files and directories
 - Nested path creation (e.g. `abc/def/notes.md`)
 - Fuzzy file finder to quickly jump to any file
@@ -53,8 +53,8 @@ Point `mdt` at a directory and you get a file tree, a fully rendered markdown pr
 - Horizontal (editor left, preview right) and vertical (editor top, preview bottom) split modes
 - Debounced rendering to keep editing responsive
 - Parallel scrolling between editor and preview panes
-- Toggle with `Space+p` or the `:preview` command
-- Swap split orientation with `Space+s`
+- Toggle with `Ctrl+p` or the `:preview` command
+- Swap split orientation with `Ctrl+s`
 
 **Search**
 
@@ -105,7 +105,7 @@ Opens the given directory, or opens the given file with the file tree rooted at 
 | `--max-file-size <bytes>` | Maximum file size to open (default: 5 MB) |
 | `--max-width <columns>` | Maximum render width in columns; also `MDT_MAX_WIDTH` env var (default: terminal width) |
 
-When `mdt` starts, you'll see the welcome screen. Press `Space+e` to open the file tree, navigate to a markdown file, and press `Enter` to preview it.
+When `mdt` starts, you'll see the welcome screen. Press `Ctrl+e` to open the file tree, navigate to a markdown file, and press `Enter` to preview it.
 
 ## Keybindings
 
@@ -114,10 +114,12 @@ When `mdt` starts, you'll see the welcome screen. Press `Space+e` to open the fi
 | Key | Action |
 |-----|--------|
 | `j` / `k` / `Down` / `Up` | Scroll down / up (preview), navigate items (file tree) |
-| `gg` | Jump to top |
-| `G` | Jump to bottom |
+| `gg` / `<` / `Home` | Jump to top |
+| `G` / `>` / `End` | Jump to bottom |
 | `Ctrl+d` | Half page down |
 | `Ctrl+u` | Half page up |
+| `Space` / `PageDown` | Full page down (like `less`) |
+| `b` / `PageUp` | Full page up |
 | `Tab` | Switch focus between file tree and preview |
 
 ### File Tree
@@ -127,7 +129,7 @@ When `mdt` starts, you'll see the welcome screen. Press `Space+e` to open the fi
 | `Enter` | Open file / toggle directory |
 | `h` / `Left` | Collapse directory |
 | `l` / `Right` | Expand directory |
-| `Space+e` | Toggle file tree visibility |
+| `Ctrl+e` | Toggle file tree visibility |
 | `a` | Create new file |
 | `A` | Create new directory |
 | `d` | Delete file or directory |
@@ -159,8 +161,8 @@ When `mdt` starts, you'll see the welcome screen. Press `Space+e` to open the fi
 
 | Key | Action |
 |-----|--------|
-| `Space+p` | Toggle live preview split |
-| `Space+s` | Swap split orientation (horizontal / vertical) |
+| `Ctrl+p` | Toggle live preview split |
+| `Ctrl+s` | Swap split orientation (horizontal / vertical) |
 | `:preview` | Toggle live preview (command mode) |
 
 ### Search

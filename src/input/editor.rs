@@ -30,32 +30,17 @@ impl App {
 
     /// Handle Normal-mode keys while in editor view (textarea is Some).
     pub(crate) fn handle_editor_normal_key(&mut self, key: KeyEvent) {
-        // Check for composed commands.
+        // Check for composed commands (gg: jump to top of editor).
         if let Some((pending_char, instant)) = self.pending_key.take() {
-            if instant.elapsed().as_millis() < 500 {
-                match (pending_char, key.code) {
-                    (' ', KeyCode::Char('p')) => {
-                        self.toggle_live_preview();
-                        return;
-                    }
-                    (' ', KeyCode::Char('s')) => {
-                        self.toggle_split_orientation();
-                        return;
-                    }
-                    (' ', KeyCode::Char('e')) => {
-                        self.toggle_file_tree();
-                        return;
-                    }
-                    ('g', KeyCode::Char('g')) => {
-                        // gg: jump to top of editor.
-                        if let Some(ref mut textarea) = self.editor.textarea {
-                            textarea.input(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
-                        }
-                        return;
-                    }
-                    _ => {} // fall through
+            if instant.elapsed().as_millis() < 500
+                && (pending_char, key.code) == ('g', KeyCode::Char('g'))
+            {
+                if let Some(ref mut textarea) = self.editor.textarea {
+                    textarea.input(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
                 }
+                return;
             }
+            // Pending key expired or didn't match — fall through to normal handling.
         }
 
         match key.code {
@@ -77,10 +62,17 @@ impl App {
                     self.exit_editor();
                 }
             }
-            // Leader keys for composed commands.
-            KeyCode::Char(' ') => {
-                self.pending_key = Some((' ', std::time::Instant::now()));
+            // Ctrl chords: layout toggles.
+            KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.toggle_file_tree();
             }
+            KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.toggle_live_preview();
+            }
+            KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.toggle_split_orientation();
+            }
+            // Leader key for composed commands (gg).
             KeyCode::Char('g') => {
                 self.pending_key = Some(('g', std::time::Instant::now()));
             }
@@ -394,8 +386,8 @@ mod tests {
     }
 
     #[test]
-    fn space_p_toggles_live_preview_in_editor_normal() {
-        let dir = TempTestDir::new("mdt-test-editor-space-p");
+    fn ctrl_p_toggles_live_preview_in_editor_normal() {
+        let dir = TempTestDir::new("mdt-test-editor-ctrl-p");
         dir.create_file("test.md", "# Test");
         let file = dir.path().join("test.md");
 
@@ -405,15 +397,14 @@ mod tests {
         app.mode = AppMode::Normal;
         assert!(!app.live_preview.enabled);
 
-        app.handle_editor_normal_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-        app.handle_editor_normal_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE));
+        app.handle_editor_normal_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
         assert!(app.live_preview.enabled);
     }
 
     #[test]
-    fn space_s_toggles_orientation_in_editor_normal() {
+    fn ctrl_s_toggles_orientation_in_editor_normal() {
         use crate::app::SplitOrientation;
-        let dir = TempTestDir::new("mdt-test-editor-space-s");
+        let dir = TempTestDir::new("mdt-test-editor-ctrl-s");
         dir.create_file("test.md", "# Test");
         let file = dir.path().join("test.md");
 
@@ -423,8 +414,7 @@ mod tests {
         app.mode = AppMode::Normal;
         assert_eq!(app.live_preview.orientation, SplitOrientation::Horizontal);
 
-        app.handle_editor_normal_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-        app.handle_editor_normal_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        app.handle_editor_normal_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
         assert_eq!(app.live_preview.orientation, SplitOrientation::Vertical);
     }
 

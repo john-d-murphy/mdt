@@ -66,6 +66,17 @@ fn key_event(code: KeyCode) -> KeyEvent {
     }
 }
 
+/// Helper: create a Ctrl+<char> key press `KeyEvent`.
+fn ctrl_event(c: char) -> KeyEvent {
+    use crossterm::event::{KeyEventKind, KeyEventState, KeyModifiers};
+    KeyEvent {
+        code: KeyCode::Char(c),
+        modifiers: KeyModifiers::CONTROL,
+        kind: KeyEventKind::Press,
+        state: KeyEventState::NONE,
+    }
+}
+
 #[test]
 fn transition_normal_to_command_and_back() {
     let dir = TempTestDir::new("mdt-test-cmd-transition");
@@ -301,10 +312,10 @@ fn update_live_preview_renders_editor_content() {
     assert!(!app.live_preview.rendered_lines.is_empty());
 }
 
-/// End-to-end test: full user flow through handle_event() for Space+p in editor.
+/// End-to-end test: full user flow through handle_event() for Ctrl+p in editor.
 #[test]
-fn e2e_space_p_toggles_preview_in_editor_via_handle_event() {
-    let dir = TempTestDir::new("mdt-test-e2e-space-p");
+fn e2e_ctrl_p_toggles_preview_in_editor_via_handle_event() {
+    let dir = TempTestDir::new("mdt-test-e2e-ctrl-p");
     dir.create_file("test.md", "# Hello\nWorld");
     let file = dir.path().join("test.md");
 
@@ -322,24 +333,22 @@ fn e2e_space_p_toggles_preview_in_editor_via_handle_event() {
     assert_eq!(app.mode, AppMode::Normal);
     assert!(app.editor.textarea.is_some()); // still in editor
 
-    // Step 3: Press Space then 'p' to toggle live preview.
+    // Step 3: Press Ctrl+p to toggle live preview.
     assert!(!app.live_preview.enabled);
-    app.handle_event(key_event(KeyCode::Char(' ')));
-    app.handle_event(key_event(KeyCode::Char('p')));
+    app.handle_event(ctrl_event('p'));
     assert!(app.live_preview.enabled);
     assert_eq!(app.status_message, "Live preview ON");
 
     // Step 4: Toggle off.
-    app.handle_event(key_event(KeyCode::Char(' ')));
-    app.handle_event(key_event(KeyCode::Char('p')));
+    app.handle_event(ctrl_event('p'));
     assert!(!app.live_preview.enabled);
     assert_eq!(app.status_message, "Live preview OFF");
 }
 
-/// Verify Space+p in Insert mode does NOT toggle preview (types into editor instead).
+/// Verify Ctrl+p in Insert mode does NOT toggle preview (goes to the textarea instead).
 #[test]
-fn space_p_in_insert_mode_does_not_toggle_preview() {
-    let dir = TempTestDir::new("mdt-test-insert-space-p");
+fn ctrl_p_in_insert_mode_does_not_toggle_preview() {
+    let dir = TempTestDir::new("mdt-test-insert-ctrl-p");
     dir.create_file("test.md", "# Test");
     let file = dir.path().join("test.md");
 
@@ -351,9 +360,8 @@ fn space_p_in_insert_mode_does_not_toggle_preview() {
     app.handle_event(key_event(KeyCode::Char('i')));
     assert_eq!(app.mode, AppMode::Insert);
 
-    // Space+p in Insert mode should NOT toggle preview.
-    app.handle_event(key_event(KeyCode::Char(' ')));
-    app.handle_event(key_event(KeyCode::Char('p')));
+    // Ctrl+p in Insert mode should NOT toggle preview.
+    app.handle_event(ctrl_event('p'));
     assert!(!app.live_preview.enabled);
 }
 

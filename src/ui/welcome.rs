@@ -16,7 +16,7 @@ const LOGO: &[&str] = &[
 ];
 
 const KEYBINDINGS: &[(&str, &str)] = &[
-    ("Spc+e", "Open file tree"),
+    ("Ctrl+e", "Open file tree"),
     ("Tab", "Toggle focus"),
     ("j/k", "Navigate files"),
     ("Enter", "Open file"),

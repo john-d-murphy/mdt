@@ -24,6 +24,16 @@ fn key(code: KeyCode) -> KeyEvent {
     }
 }
 
+/// Create a Ctrl+<char> key press event.
+fn ctrl(c: char) -> KeyEvent {
+    KeyEvent {
+        code: KeyCode::Char(c),
+        modifiers: KeyModifiers::CONTROL,
+        kind: KeyEventKind::Press,
+        state: KeyEventState::NONE,
+    }
+}
+
 /// Create a key press with modifiers.
 fn key_mod(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
     KeyEvent { code, modifiers, kind: KeyEventKind::Press, state: KeyEventState::NONE }
@@ -103,24 +113,22 @@ fn gg_sequence_selects_first_in_file_list() {
     assert_eq!(after_gg, first_selected);
 }
 
-// ── Space+e (toggle file tree) ─────────────────────────────────────────
+// ── Ctrl+e (toggle file tree) ──────────────────────────────────────────
 
 #[test]
-fn space_e_toggles_file_tree() {
-    let dir = TempTestDir::new("mdt-integ-space-e");
+fn ctrl_e_toggles_file_tree() {
+    let dir = TempTestDir::new("mdt-integ-ctrl-e");
     dir.create_file("test.md", "# Test");
 
     let mut app = App::new(dir.path(), Color::Reset).unwrap();
     assert!(!app.show_file_tree);
 
-    // Space+e toggles on
-    app.handle_event(key(KeyCode::Char(' ')));
-    app.handle_event(key(KeyCode::Char('e')));
+    // Ctrl+e toggles on
+    app.handle_event(ctrl('e'));
     assert!(app.show_file_tree);
 
-    // Space+e toggles off
-    app.handle_event(key(KeyCode::Char(' ')));
-    app.handle_event(key(KeyCode::Char('e')));
+    // Ctrl+e toggles off
+    app.handle_event(ctrl('e'));
     assert!(!app.show_file_tree);
 }
 
