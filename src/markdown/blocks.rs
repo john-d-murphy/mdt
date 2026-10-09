@@ -71,6 +71,20 @@ impl ImageLayout {
         (u16::try_from(cols).unwrap_or(u16::MAX), u16::try_from(rows).unwrap_or(u16::MAX))
     }
 
+    /// The box a `w`×`h` picture is drawn in at this width, in cells — `None` when images
+    /// are off, or before there is a pane to draw into.
+    pub fn box_for(
+        self,
+        dims: (u32, u32),
+        available_width: usize,
+    ) -> Option<ratatui::layout::Size> {
+        if !self.enabled || available_width == 0 {
+            return None;
+        }
+        let (cols, rows) = self.size_for(dims, Some(available_width));
+        Some(ratatui::layout::Size::new(cols, rows))
+    }
+
     /// Just the rows of [`Self::size_for`].
     pub fn rows_for(self, dims: (u32, u32), available_width: Option<usize>) -> u16 {
         self.size_for(dims, available_width).1

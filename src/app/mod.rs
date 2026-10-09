@@ -331,7 +331,6 @@ impl App {
         } else {
             None
         };
-        self.images.prewarm(&blocks);
         let (rendered, block_line_starts) = rewrap_blocks(&blocks, width, self.images.layout());
         self.live_preview.rendered_lines = rendered;
         self.live_preview.rendered_blocks = blocks;
@@ -372,7 +371,6 @@ impl App {
             None
         };
         self.images.clear_cache();
-        self.images.prewarm(&blocks);
         let (rendered, block_line_starts) = rewrap_blocks(&blocks, width, self.images.layout());
         self.document.rendered_lines = rendered;
         self.document.rebuild_lower_cache();

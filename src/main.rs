@@ -245,6 +245,11 @@ fn run_loop(
             }
         }
 
+        // A picture finished being read in the background — show it.
+        if app.images.take_decoded() {
+            needs_redraw = true;
+        }
+
         // Drain filesystem watcher events.
         if let Some(rx) = fs_rx {
             while let Ok(fs_event) = rx.try_recv() {

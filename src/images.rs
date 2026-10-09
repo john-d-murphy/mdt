@@ -120,10 +120,55 @@ impl ImageViewerState {
 /// What a cached viewer encoding was made for: the file, the pixels on show, the box.
 type ViewerKey = (PathBuf, (u32, u32, u32, u32), (u16, u16));
 
-/// A decoded image and, once drawn, its encoding for the size it was last drawn at.
+/// A picture read from disk, scaled for the box it will fill, and encoded for the terminal
+/// — the last two as and when they are wanted.
 struct Cached {
+    /// As read, kept at full size for the viewer to zoom into.
     image: image::DynamicImage,
+    /// Scaled to a box, ready to encode. Done on the reading thread where it can be.
+    scaled: Option<(Size, image::DynamicImage)>,
+    /// Scaled and encoded for the terminal, for the box it was last drawn in.
     sliced: Option<(Size, SlicedProtocol)>,
+}
+
+/// What the reading thread hands back: the picture, and it scaled to the box it will fill.
+struct Read {
+    image: image::DynamicImage,
+    scaled: Option<(Size, image::DynamicImage)>,
+}
+
+impl From<Read> for Cached {
+    fn from(read: Read) -> Self {
+        Self { image: read.image, scaled: read.scaled, sliced: None }
+    }
+}
+
+/// What is on screen of a document, and the box it is drawn in.
+pub(crate) struct PaneView<'a> {
+    /// The document's blocks, in order.
+    pub(crate) blocks: &'a [RenderedBlock],
+    /// The first rendered line of each block.
+    pub(crate) starts: &'a [usize],
+    /// How many rendered lines the document has.
+    pub(crate) total_lines: usize,
+    /// The rendered line at the top of the pane.
+    pub(crate) scroll_offset: usize,
+    /// The width the document was wrapped to — which is what images were sized against.
+    pub(crate) wrap_width: usize,
+    /// The pane's text area, whose first row is line `scroll_offset`.
+    pub(crate) inner: Rect,
+}
+
+/// Scale `image` down to fill a `size` box of `cell_px` cells, keeping its proportions.
+///
+/// A triangle filter rather than the nearest-neighbour the crate would use: this runs once
+/// per picture, off the drawing thread, and it is what the reader actually looks at.
+fn scale_to(image: &image::DynamicImage, size: Size, cell_px: (u16, u16)) -> image::DynamicImage {
+    image.resize(
+        u32::from(size.width) * u32::from(cell_px.0),
+        u32::from(size.height) * u32::from(cell_px.1),
+        image::imageops::FilterType::Triangle,
+    )
 }
 
 /// Terminal graphics: the picker that knows the protocol and cell size, the on/off switch,
@@ -140,8 +185,8 @@ pub(crate) struct ImageState {
     pending: HashSet<PathBuf>,
 }
 
-/// A file and the picture read from it, or `None` if it could not be read.
-type Decoded = (PathBuf, Option<image::DynamicImage>);
+/// A file and what was read from it, or `None` if it could not be read.
+type Decoded = (PathBuf, Option<Read>);
 
 impl ImageState {
     /// No graphics at all: `--no-images`, or before the terminal has been asked.
@@ -208,10 +253,10 @@ impl ImageState {
         self.cache.contains_key(path)
     }
 
-    /// Take finished decodes into the cache, for tests.
+    /// Take finished reads into the cache, for tests.
     #[cfg(test)]
     pub(crate) fn collect_for_test(&mut self) {
-        self.collect_decoded();
+        self.take_decoded();
     }
 
     /// How many files a background thread is still reading, for tests.
@@ -226,62 +271,74 @@ impl ImageState {
         self.viewer_encoding = None;
     }
 
-    /// Read a document's pictures on a background thread, so that scrolling onto one does
-    /// not stall while a megapixel JPEG is decoded — which is most of the cost of drawing
-    /// one. Cheap to call again: files already read, or already being read, are skipped.
-    pub(crate) fn prewarm(&mut self, blocks: &[RenderedBlock]) {
+    /// Read a document's pictures on a background thread, and scale them there too, so that
+    /// scrolling onto one costs nothing but the encode. Reading a megapixel JPEG and scaling
+    /// it down are together almost all of the work of showing one.
+    ///
+    /// Cheap to call again — files already read, or already being read, are skipped — so the
+    /// drawing code calls it every frame, which is also how it learns the box to scale to.
+    pub(crate) fn prewarm(&mut self, blocks: &[RenderedBlock], wrap_width: usize) {
         if self.picker.is_none() {
             return;
         }
-        let mut paths: Vec<PathBuf> = blocks
+        let layout = self.layout();
+        let mut jobs: Vec<(PathBuf, Option<Size>)> = blocks
             .iter()
             .filter_map(|block| match block {
-                RenderedBlock::Image { path: Some(path), dims: Some(_), .. } => Some(path.clone()),
+                RenderedBlock::Image { path: Some(path), dims: Some(dims), .. } => {
+                    Some((path.clone(), layout.box_for(*dims, wrap_width)))
+                }
                 _ => None,
             })
-            .filter(|path| !self.cache.contains_key(path) && !self.pending.contains(path))
+            .filter(|(path, _)| !self.cache.contains_key(path) && !self.pending.contains(path))
             .collect();
-        paths.sort_unstable();
-        paths.dedup();
-        if paths.is_empty() {
+        jobs.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        jobs.dedup_by(|a, b| a.0 == b.0);
+        if jobs.is_empty() {
             return;
         }
 
-        self.pending.extend(paths.iter().cloned());
+        self.pending.extend(jobs.iter().map(|(path, _)| path.clone()));
         let tx = self.decoded.0.clone();
+        let cell_px = layout.cell_px;
         std::thread::spawn(move || {
-            for path in paths {
-                let decoded = image::open(&path).ok();
-                if tx.send((path, decoded)).is_err() {
+            for (path, box_size) in jobs {
+                let read = image::open(&path).ok().map(|image| {
+                    let scaled = box_size.map(|size| (size, scale_to(&image, size, cell_px)));
+                    Read { image, scaled }
+                });
+                if tx.send((path, read)).is_err() {
                     return; // nobody is listening any more
                 }
             }
         });
     }
 
-    /// Take whatever the decoding thread has finished into the cache. Called before drawing.
-    fn collect_decoded(&mut self) {
-        while let Ok((path, decoded)) = self.decoded.1.try_recv() {
+    /// Take whatever has been read into the cache; `true` if anything arrived, which means
+    /// the screen owes a redraw. Called from the event loop and before drawing.
+    pub(crate) fn take_decoded(&mut self) -> bool {
+        let mut arrived = false;
+        while let Ok((path, read)) = self.decoded.1.try_recv() {
             self.pending.remove(&path);
-            self.cache
-                .entry(path)
-                .or_insert_with(|| decoded.map(|image| Cached { image, sliced: None }));
+            self.cache.entry(path).or_insert_with(|| read.map(Cached::from));
+            arrived = true;
         }
+        arrived
     }
 
     /// Draw the viewer's picture at `area`: the region it is looking at, scaled to fill the
     /// box — enlarged past its natural size if need be, which is the point of the viewer.
     pub(crate) fn draw_viewer(&mut self, frame: &mut Frame, area: Rect, viewer: &ImageViewerState) {
-        self.collect_decoded();
+        self.take_decoded();
         let Self { picker, cache, viewer_encoding, .. } = self;
         let (Some(picker), Some(path)) = (picker.as_ref(), viewer.path.as_ref()) else { return };
         if area.width == 0 || area.height == 0 {
             return;
         }
 
-        let entry = cache
-            .entry(path.clone())
-            .or_insert_with(|| image::open(path).ok().map(|image| Cached { image, sliced: None }));
+        let entry = cache.entry(path.clone()).or_insert_with(|| {
+            image::open(path).ok().map(|image| Read { image, scaled: None }.into())
+        });
         let Some(cached) = entry else {
             let note = format!("[image: could not decode {}]", path.display());
             let style = Style::new().fg(palette::FG_MUTED).add_modifier(Modifier::ITALIC);
@@ -311,23 +368,18 @@ impl ImageState {
         }
     }
 
-    /// Paint every image block with rows on screen, including the visible part of one that is
-    /// partly scrolled off. `starts` is the first rendered line of each block, `total_lines`
-    /// the line count, `inner` the pane's text area whose first row is rendered line
-    /// `scroll_offset`.
-    pub(crate) fn draw(
-        &mut self,
-        frame: &mut Frame,
-        blocks: &[RenderedBlock],
-        starts: &[usize],
-        total_lines: usize,
-        scroll_offset: usize,
-        inner: Rect,
-    ) {
-        self.collect_decoded();
+    /// Paint every image block with rows on screen, including the visible part of one that
+    /// is partly scrolled off — see [`PaneView`] for what is where.
+    pub(crate) fn draw(&mut self, frame: &mut Frame, view: &PaneView<'_>) {
+        let &PaneView { blocks, starts, total_lines, scroll_offset, wrap_width, inner } = view;
+        self.take_decoded();
         if !self.enabled() {
             return;
         }
+        // Reading and scaling happen on another thread; this is where that is set going,
+        // since the box to scale to is only known once there is a pane to draw into.
+        self.prewarm(blocks, wrap_width);
+
         let Some(picker) = self.picker.as_ref() else { return };
         let layout = self.layout();
         let viewport = usize::from(inner.height);
@@ -341,37 +393,34 @@ impl ImageState {
             if end <= start || end <= scroll_offset || start >= scroll_offset + viewport {
                 continue;
             }
-            // The rows re-wrapping gave it, and the columns it is drawn at for this width.
+            // The rows re-wrapping gave it, and the columns it is drawn at for that width.
             let rows = u16::try_from(end - start).unwrap_or(u16::MAX);
-            let (cols, _) = layout.size_for(*dims, Some(usize::from(inner.width)));
+            let (cols, _) = layout.size_for(*dims, Some(wrap_width));
             let size = Size::new(cols.min(inner.width), rows);
             // Where its top row sits relative to the pane: negative when scrolled off the top.
             let offset = i64::try_from(start).unwrap_or(i64::MAX)
                 - i64::try_from(scroll_offset).unwrap_or(i64::MAX);
             let y = i16::try_from(offset).unwrap_or(if offset < 0 { i16::MIN } else { i16::MAX });
 
-            let entry = self.cache.entry(path.clone()).or_insert_with(|| {
-                image::open(path).ok().map(|image| Cached { image, sliced: None })
-            });
+            // Still being read: leave its rows blank rather than stall the whole frame
+            // reading it here. It appears a moment later, when the read lands.
+            let Some(entry) = self.cache.get_mut(path) else { continue };
             let Some(cached) = entry else {
-                let note = format!("[image: could not decode {}]", path.display());
+                let note = format!("[image: could not read {}]", path.display());
                 let style = Style::new().fg(palette::FG_MUTED).add_modifier(Modifier::ITALIC);
                 let row = inner.y.saturating_add(u16::try_from(offset.max(0)).unwrap_or(0));
                 let area = Rect::new(inner.x, row, inner.width, 1);
                 frame.render_widget(Paragraph::new(Span::styled(note, style)), area);
                 continue;
             };
-            // Encode once per size; the pane changing width is what makes it stale. Scale
-            // down from the decoded original here rather than handing the whole picture
-            // over to be cloned and scaled inside — and with a better filter than the
-            // nearest-neighbour the crate would use.
+            // Encode once per size; the pane changing width is what makes it stale. The
+            // scaling was done on the reading thread, unless the pane has changed width
+            // since — then it has to happen here.
             if !matches!(cached.sliced.as_ref(), Some((at, _)) if *at == size) {
-                let (cell_w, cell_h) = layout.cell_px;
-                let scaled = cached.image.resize(
-                    u32::from(size.width) * u32::from(cell_w),
-                    u32::from(size.height) * u32::from(cell_h),
-                    image::imageops::FilterType::Triangle,
-                );
+                let scaled = match cached.scaled.take() {
+                    Some((at, scaled)) if at == size => scaled,
+                    _ => scale_to(&cached.image, size, layout.cell_px),
+                };
                 cached.sliced =
                     SlicedProtocol::new(picker, scaled, Some(size)).ok().map(|s| (size, s));
             }
@@ -413,14 +462,41 @@ mod tests {
         let blocks = vec![RenderedBlock::Image {
             src: "red.png".to_string(),
             alt: String::new(),
-            path: Some(path),
+            path: Some(path.clone()),
             dims: Some((w, h)),
         }];
         let pane = Rect::new(0, 0, 40, pane_h);
         let mut terminal = Terminal::new(TestBackend::new(40, pane_h)).unwrap();
-        terminal
-            .draw(|f| state.draw(f, &blocks, &[0], usize::from(rows), scroll_offset, pane))
-            .unwrap();
+
+        // The first draw sets the reading going on another thread; the picture is painted
+        // on a later one, once it has landed.
+        let mut landed = false;
+        for _ in 0..200 {
+            let view = PaneView {
+                blocks: &blocks,
+                starts: &[0],
+                total_lines: usize::from(rows),
+                scroll_offset,
+                wrap_width: 40,
+                inner: pane,
+            };
+            terminal.draw(|f| state.draw(f, &view)).unwrap();
+            if state.is_cached_for_test(&path) {
+                landed = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(landed, "the picture was not read within two seconds");
+        let view = PaneView {
+            blocks: &blocks,
+            starts: &[0],
+            total_lines: usize::from(rows),
+            scroll_offset,
+            wrap_width: 40,
+            inner: pane,
+        };
+        terminal.draw(|f| state.draw(f, &view)).unwrap();
         let buf = terminal.backend().buffer().clone();
         (0..pane_h)
             .map(|y| {
@@ -472,7 +548,7 @@ mod tests {
         }];
 
         let mut state = ImageState::with_picker(Picker::halfblocks());
-        state.prewarm(&blocks);
+        state.prewarm(&blocks, 40);
         assert_eq!(state.pending_for_test(), 1, "it is queued, not read on this thread");
 
         // The worker is a thread; give it a moment, taking what it has finished.
@@ -487,7 +563,7 @@ mod tests {
         assert_eq!(state.pending_for_test(), 0);
 
         // Already read: nothing queued a second time.
-        state.prewarm(&blocks);
+        state.prewarm(&blocks, 40);
         assert_eq!(state.pending_for_test(), 0);
     }
 
@@ -508,11 +584,11 @@ mod tests {
             },
         ];
         let mut state = ImageState::with_picker(Picker::halfblocks());
-        state.prewarm(&blocks);
+        state.prewarm(&blocks, 40);
         assert_eq!(state.pending_for_test(), 0, "nothing on disk to read");
 
         let mut off = ImageState::disabled();
-        off.prewarm(&blocks);
+        off.prewarm(&blocks, 40);
         assert_eq!(off.pending_for_test(), 0, "no picker, no reading");
     }
 

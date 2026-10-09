@@ -12,6 +12,7 @@ use ratatui::widgets::{
 use ratatui::Frame;
 
 use crate::app::{App, Overlay};
+use crate::images::PaneView;
 use crate::markdown::rewrap_blocks;
 
 /// Draw the preview pane with virtual scrolling.
@@ -120,11 +121,14 @@ pub fn draw_preview(frame: &mut Frame, app: &mut App, area: Rect) {
     if matches!(app.overlay, Overlay::None) {
         app.images.draw(
             frame,
-            &app.document.rendered_blocks,
-            &app.document.block_line_starts,
-            app.document.rendered_lines.len(),
-            app.document.scroll_offset,
-            inner,
+            &PaneView {
+                blocks: &app.document.rendered_blocks,
+                starts: &app.document.block_line_starts,
+                total_lines: app.document.rendered_lines.len(),
+                scroll_offset: app.document.scroll_offset,
+                wrap_width: app.document.viewport_width,
+                inner,
+            },
         );
     }
 
@@ -236,11 +240,14 @@ pub fn draw_live_preview(frame: &mut Frame, app: &mut App, area: Rect) {
     if matches!(app.overlay, Overlay::None) {
         app.images.draw(
             frame,
-            &app.live_preview.rendered_blocks,
-            &app.live_preview.block_line_starts,
-            app.live_preview.rendered_lines.len(),
-            app.live_preview.scroll_offset,
-            inner,
+            &PaneView {
+                blocks: &app.live_preview.rendered_blocks,
+                starts: &app.live_preview.block_line_starts,
+                total_lines: app.live_preview.rendered_lines.len(),
+                scroll_offset: app.live_preview.scroll_offset,
+                wrap_width: app.live_preview.viewport_width,
+                inner,
+            },
         );
     }
 
