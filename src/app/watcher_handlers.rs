@@ -121,6 +121,7 @@ impl App {
             None
         };
         self.images.clear_cache();
+        self.images.prewarm(&blocks);
         let (rendered, block_line_starts) = rewrap_blocks(&blocks, width, self.images.layout());
 
         self.document.rendered_lines = rendered;

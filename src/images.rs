@@ -9,8 +9,9 @@
 //! so an image is exactly where its rows are and is gone the moment they are not drawn —
 //! nothing lingers when the page scrolls.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::mpsc::{self, Receiver, Sender};
 
 use ratatui::layout::{Rect, Size};
 use ratatui::style::{Modifier, Style};
@@ -98,7 +99,6 @@ impl ImageViewerState {
         self.center = (self.center.0.clamp(lo, hi), self.center.1.clamp(lo, hi));
     }
 
-    /// The region on show, for tests: see [`Self::crop`].
     #[cfg(test)]
     pub(crate) fn crop_for_test(&self, w: u32, h: u32) -> (u32, u32, u32, u32) {
         self.crop(w, h)
@@ -134,17 +134,31 @@ pub(crate) struct ImageState {
     cache: HashMap<PathBuf, Option<Cached>>,
     /// The viewer's last encoding, kept so that a redraw at the same zoom costs nothing.
     viewer_encoding: Option<(ViewerKey, Protocol)>,
+    /// Pictures decoded on a background thread, waiting to be taken into the cache.
+    decoded: (Sender<Decoded>, Receiver<Decoded>),
+    /// What a background thread is decoding, so the same file is not queued twice.
+    pending: HashSet<PathBuf>,
 }
+
+/// A file and the picture read from it, or `None` if it could not be read.
+type Decoded = (PathBuf, Option<image::DynamicImage>);
 
 impl ImageState {
     /// No graphics at all: `--no-images`, or before the terminal has been asked.
     pub(crate) fn disabled() -> Self {
-        Self { picker: None, enabled: false, cache: HashMap::new(), viewer_encoding: None }
+        Self {
+            picker: None,
+            enabled: false,
+            cache: HashMap::new(),
+            viewer_encoding: None,
+            decoded: mpsc::channel(),
+            pending: HashSet::new(),
+        }
     }
 
     /// Graphics through `picker`, switched on.
     pub(crate) fn with_picker(picker: Picker) -> Self {
-        Self { picker: Some(picker), enabled: true, cache: HashMap::new(), viewer_encoding: None }
+        Self { picker: Some(picker), enabled: true, ..Self::disabled() }
     }
 
     /// Whether the terminal was asked at all (false under `--no-images`).
@@ -188,15 +202,77 @@ impl ImageState {
         }
     }
 
+    /// Whether `path` has been read into the cache, for tests.
+    #[cfg(test)]
+    pub(crate) fn is_cached_for_test(&self, path: &std::path::Path) -> bool {
+        self.cache.contains_key(path)
+    }
+
+    /// Take finished decodes into the cache, for tests.
+    #[cfg(test)]
+    pub(crate) fn collect_for_test(&mut self) {
+        self.collect_decoded();
+    }
+
+    /// How many files a background thread is still reading, for tests.
+    #[cfg(test)]
+    pub(crate) fn pending_for_test(&self) -> usize {
+        self.pending.len()
+    }
+
     /// Forget decoded images (on opening another document).
     pub(crate) fn clear_cache(&mut self) {
         self.cache.clear();
         self.viewer_encoding = None;
     }
 
+    /// Read a document's pictures on a background thread, so that scrolling onto one does
+    /// not stall while a megapixel JPEG is decoded — which is most of the cost of drawing
+    /// one. Cheap to call again: files already read, or already being read, are skipped.
+    pub(crate) fn prewarm(&mut self, blocks: &[RenderedBlock]) {
+        if self.picker.is_none() {
+            return;
+        }
+        let mut paths: Vec<PathBuf> = blocks
+            .iter()
+            .filter_map(|block| match block {
+                RenderedBlock::Image { path: Some(path), dims: Some(_), .. } => Some(path.clone()),
+                _ => None,
+            })
+            .filter(|path| !self.cache.contains_key(path) && !self.pending.contains(path))
+            .collect();
+        paths.sort_unstable();
+        paths.dedup();
+        if paths.is_empty() {
+            return;
+        }
+
+        self.pending.extend(paths.iter().cloned());
+        let tx = self.decoded.0.clone();
+        std::thread::spawn(move || {
+            for path in paths {
+                let decoded = image::open(&path).ok();
+                if tx.send((path, decoded)).is_err() {
+                    return; // nobody is listening any more
+                }
+            }
+        });
+    }
+
+    /// Take whatever the decoding thread has finished into the cache. Called before drawing.
+    fn collect_decoded(&mut self) {
+        while let Ok((path, decoded)) = self.decoded.1.try_recv() {
+            self.pending.remove(&path);
+            self.cache
+                .entry(path)
+                .or_insert_with(|| decoded.map(|image| Cached { image, sliced: None }));
+        }
+    }
+
     /// Draw the viewer's picture at `area`: the region it is looking at, scaled to fill the
     /// box — enlarged past its natural size if need be, which is the point of the viewer.
     pub(crate) fn draw_viewer(&mut self, frame: &mut Frame, area: Rect, viewer: &ImageViewerState) {
+        self.collect_decoded();
         let Self { picker, cache, viewer_encoding, .. } = self;
         let (Some(picker), Some(path)) = (picker.as_ref(), viewer.path.as_ref()) else { return };
         if area.width == 0 || area.height == 0 {
@@ -248,6 +324,7 @@ impl ImageState {
         scroll_offset: usize,
         inner: Rect,
     ) {
+        self.collect_decoded();
         if !self.enabled() {
             return;
         }
@@ -284,11 +361,19 @@ impl ImageState {
                 frame.render_widget(Paragraph::new(Span::styled(note, style)), area);
                 continue;
             };
-            // Encode once per size; the pane changing width is what makes it stale.
+            // Encode once per size; the pane changing width is what makes it stale. Scale
+            // down from the decoded original here rather than handing the whole picture
+            // over to be cloned and scaled inside — and with a better filter than the
+            // nearest-neighbour the crate would use.
             if !matches!(cached.sliced.as_ref(), Some((at, _)) if *at == size) {
-                cached.sliced = SlicedProtocol::new(picker, cached.image.clone(), Some(size))
-                    .ok()
-                    .map(|sliced| (size, sliced));
+                let (cell_w, cell_h) = layout.cell_px;
+                let scaled = cached.image.resize(
+                    u32::from(size.width) * u32::from(cell_w),
+                    u32::from(size.height) * u32::from(cell_h),
+                    image::imageops::FilterType::Triangle,
+                );
+                cached.sliced =
+                    SlicedProtocol::new(picker, scaled, Some(size)).ok().map(|s| (size, s));
             }
             if let Some((_, sliced)) = cached.sliced.as_ref() {
                 SlicedImage::new(sliced, SignedPosition { x: 0, y })
@@ -372,6 +457,63 @@ mod tests {
     #[test]
     fn an_image_running_off_the_bottom_paints_the_row_it_has() {
         assert_eq!(painted_rows(16, 80, 0, 1), [true], "a one-row pane still shows its top row");
+    }
+
+    #[test]
+    fn prewarm_reads_a_documents_pictures_in_the_background() {
+        let dir = crate::test_util::TempTestDir::new("mdt-test-images-prewarm");
+        let path = dir.path().join("red.png");
+        image::RgbImage::from_pixel(32, 32, image::Rgb([255, 0, 0])).save(&path).unwrap();
+        let blocks = vec![RenderedBlock::Image {
+            src: "red.png".to_string(),
+            alt: String::new(),
+            path: Some(path.clone()),
+            dims: Some((32, 32)),
+        }];
+
+        let mut state = ImageState::with_picker(Picker::halfblocks());
+        state.prewarm(&blocks);
+        assert_eq!(state.pending_for_test(), 1, "it is queued, not read on this thread");
+
+        // The worker is a thread; give it a moment, taking what it has finished.
+        for _ in 0..200 {
+            state.collect_for_test();
+            if state.is_cached_for_test(&path) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(state.is_cached_for_test(&path), "the picture was not read within two seconds");
+        assert_eq!(state.pending_for_test(), 0);
+
+        // Already read: nothing queued a second time.
+        state.prewarm(&blocks);
+        assert_eq!(state.pending_for_test(), 0);
+    }
+
+    #[test]
+    fn prewarm_skips_remote_and_missing_pictures_and_needs_a_picker() {
+        let blocks = vec![
+            RenderedBlock::Image {
+                src: "https://x.example/a.png".to_string(),
+                alt: String::new(),
+                path: None,
+                dims: None,
+            },
+            RenderedBlock::Image {
+                src: "gone.png".to_string(),
+                alt: String::new(),
+                path: Some(PathBuf::from("/nowhere/gone.png")),
+                dims: None,
+            },
+        ];
+        let mut state = ImageState::with_picker(Picker::halfblocks());
+        state.prewarm(&blocks);
+        assert_eq!(state.pending_for_test(), 0, "nothing on disk to read");
+
+        let mut off = ImageState::disabled();
+        off.prewarm(&blocks);
+        assert_eq!(off.pending_for_test(), 0, "no picker, no reading");
     }
 
     #[test]
