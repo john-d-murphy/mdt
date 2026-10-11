@@ -74,6 +74,10 @@ impl App {
                         }
                         return;
                     }
+                    Overlay::ImageViewer => {
+                        self.handle_image_viewer_key(key);
+                        return;
+                    }
                     Overlay::None => {}
                 }
                 self.handle_normal_key(key);

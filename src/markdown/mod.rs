@@ -8,6 +8,8 @@
 //! 1. **`render_markdown_blocks`** — parses markdown + syntax highlights code blocks → cached blocks
 //! 2. **`rewrap_blocks`** — re-wraps cached blocks to a given width → `Vec<Line<'static>>`
 
+use std::path::Path;
+
 use pulldown_cmark::{Options, Parser};
 use ratatui::text::Span;
 
@@ -21,7 +23,7 @@ mod theme;
 use renderer::Renderer;
 use theme::*;
 
-pub(crate) use blocks::{rewrap_blocks, RenderedBlock};
+pub(crate) use blocks::{rewrap_blocks, ImageLayout, RenderedBlock};
 pub(crate) use renderer::{deduplicate_links, humanize_url, LinkInfo};
 
 #[cfg(test)]
@@ -46,8 +48,8 @@ pub fn render_markdown(
         return Text::raw(cleaned);
     }
 
-    let (blocks, _links) = render_markdown_blocks(input);
-    let (lines, _block_starts) = rewrap_blocks(&blocks, available_width);
+    let (blocks, _links) = render_markdown_blocks(input, None);
+    let (lines, _block_starts) = rewrap_blocks(&blocks, available_width, ImageLayout::DISABLED);
     Text::from(lines)
 }
 
@@ -56,7 +58,11 @@ pub fn render_markdown(
 /// This is the expensive "phase 1" of the split pipeline — parses markdown and
 /// syntax-highlights all code blocks. The result can be cached and cheaply re-wrapped
 /// to different widths via [`rewrap_blocks`].
-pub(crate) fn render_markdown_blocks(input: &str) -> (Vec<RenderedBlock>, Vec<LinkInfo>) {
+/// `base_dir` is where an image's relative `src` resolves from — the document's directory.
+pub(crate) fn render_markdown_blocks(
+    input: &str,
+    base_dir: Option<&Path>,
+) -> (Vec<RenderedBlock>, Vec<LinkInfo>) {
     let cleaned = input.replace('\t', "    ");
 
     if no_color() {
@@ -64,7 +70,7 @@ pub(crate) fn render_markdown_blocks(input: &str) -> (Vec<RenderedBlock>, Vec<Li
         let options =
             Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS | Options::ENABLE_TABLES;
         let parser = Parser::new_ext(&cleaned, options);
-        let mut renderer = Renderer::new();
+        let mut renderer = Renderer::new().with_base_dir(base_dir);
         renderer.run(parser);
         let (_styled_blocks, links) = renderer.into_blocks();
 
@@ -85,7 +91,7 @@ pub(crate) fn render_markdown_blocks(input: &str) -> (Vec<RenderedBlock>, Vec<Li
         Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS | Options::ENABLE_TABLES;
     let parser = Parser::new_ext(&cleaned, options);
 
-    let mut renderer = Renderer::new();
+    let mut renderer = Renderer::new().with_base_dir(base_dir);
     renderer.run(parser);
     renderer.into_blocks()
 }
@@ -96,6 +102,7 @@ pub(crate) fn render_markdown_blocks(input: &str) -> (Vec<RenderedBlock>, Vec<Li
 /// where that block starts. Used by live preview for accurate scroll sync.
 pub(crate) fn render_markdown_blocks_with_source_map(
     input: &str,
+    base_dir: Option<&Path>,
 ) -> (Vec<RenderedBlock>, Vec<LinkInfo>, Vec<usize>) {
     let cleaned = input.replace('\t', "    ");
 
@@ -103,7 +110,7 @@ pub(crate) fn render_markdown_blocks_with_source_map(
         Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS | Options::ENABLE_TABLES;
     let parser = Parser::new_ext(&cleaned, options);
 
-    let mut renderer = Renderer::new();
+    let mut renderer = Renderer::new().with_base_dir(base_dir);
     renderer.run_with_offsets(parser.into_offset_iter());
     let (blocks, links, byte_offsets) = renderer.into_blocks_with_offsets();
 

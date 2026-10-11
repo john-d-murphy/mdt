@@ -11,7 +11,8 @@ use ratatui::widgets::{
 };
 use ratatui::Frame;
 
-use crate::app::App;
+use crate::app::{App, Overlay};
+use crate::images::PaneView;
 use crate::markdown::rewrap_blocks;
 
 /// Draw the preview pane with virtual scrolling.
@@ -42,7 +43,7 @@ pub fn draw_preview(frame: &mut Frame, app: &mut App, area: Rect) {
     if new_width != app.document.viewport_width {
         if !app.document.rendered_blocks.is_empty() {
             let (lines, block_line_starts) =
-                rewrap_blocks(&app.document.rendered_blocks, Some(new_width));
+                rewrap_blocks(&app.document.rendered_blocks, Some(new_width), app.images.layout());
             app.document.rendered_lines = lines;
             app.document.block_line_starts = block_line_starts;
             app.document.rebuild_lower_cache();
@@ -115,6 +116,22 @@ pub fn draw_preview(frame: &mut Frame, app: &mut App, area: Rect) {
     let paragraph = Paragraph::new(text).block(block).scroll((0, 0));
     frame.render_widget(paragraph, area);
 
+    // Images go over the rows re-wrapping left for them — but not under an overlay, which
+    // would cover part of a picture and leave the rest poking out around it.
+    if matches!(app.overlay, Overlay::None) {
+        app.images.draw(
+            frame,
+            &PaneView {
+                blocks: &app.document.rendered_blocks,
+                starts: &app.document.block_line_starts,
+                total_lines: app.document.rendered_lines.len(),
+                scroll_offset: app.document.scroll_offset,
+                wrap_width: app.document.viewport_width,
+                inner,
+            },
+        );
+    }
+
     // Scrollbar: only render when content exceeds viewport.
     let total_lines = app.document.rendered_lines.len();
     let viewport_height = app.document.viewport_height;
@@ -149,7 +166,7 @@ pub fn draw_live_preview(frame: &mut Frame, app: &mut App, area: Rect) {
     if new_width != app.live_preview.viewport_width && !app.live_preview.rendered_blocks.is_empty()
     {
         let (lines, block_line_starts) =
-            rewrap_blocks(&app.live_preview.rendered_blocks, Some(new_width));
+            rewrap_blocks(&app.live_preview.rendered_blocks, Some(new_width), app.images.layout());
         app.live_preview.rendered_lines = lines;
         app.live_preview.block_line_starts = block_line_starts;
         app.live_preview.viewport_width = new_width;
@@ -218,6 +235,21 @@ pub fn draw_live_preview(frame: &mut Frame, app: &mut App, area: Rect) {
 
     let paragraph = Paragraph::new(text).block(block).scroll((0, 0));
     frame.render_widget(paragraph, area);
+
+    // Images over the rows re-wrapping left for them (not under an overlay — see above).
+    if matches!(app.overlay, Overlay::None) {
+        app.images.draw(
+            frame,
+            &PaneView {
+                blocks: &app.live_preview.rendered_blocks,
+                starts: &app.live_preview.block_line_starts,
+                total_lines: app.live_preview.rendered_lines.len(),
+                scroll_offset: app.live_preview.scroll_offset,
+                wrap_width: app.live_preview.viewport_width,
+                inner,
+            },
+        );
+    }
 
     // Scrollbar
     let total_lines = app.live_preview.rendered_lines.len();

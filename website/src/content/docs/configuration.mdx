@@ -8,7 +8,7 @@ mdt is configured through command-line flags and environment variables. There is
 ## Usage
 
 ```bash
-mdt [path] [--max-file-size <bytes>] [--max-width <columns>]
+mdt [path] [--max-file-size <bytes>] [--max-width <columns>] [--no-images]
 ```
 
 If no path is given, mdt opens the current directory. You can pass a directory to browse or a specific file to open directly. When given a file, mdt opens it immediately, roots the file tree at the file's directory, and selects the file in the tree.
@@ -37,6 +37,7 @@ In stdin mode, mdt operates in read-only preview mode. The file tree, file finde
 | ------------------------- | --------------------------------------------- | ---------------- |
 | `--max-file-size <bytes>` | Maximum file size in bytes that mdt will open | 5,242,880 (5 MB) |
 | `--max-width <columns>`   | Maximum width in columns for rendered markdown | none (terminal width) |
+| `--no-images`             | Never draw images; `![alt](src)` shows as `[image: alt]` | images on |
 
 For example, to allow opening files up to 10 MB:
 
@@ -72,7 +73,24 @@ NO_COLOR=1 mdt
 
 This is useful for terminals that do not support colors or when piping output.
 
+### `MDT_NO_IMAGES`
+
+Set to `1` to start with images off, as if `--no-images` were given.
+
+```bash
+export MDT_NO_IMAGES=1
+```
+
 ## Terminal integration
+
+### Inline images
+
+`![alt](path)` is drawn in the preview. At startup mdt asks the terminal what it can do and picks kitty's graphics protocol, sixels or iTerm2's, falling back to unicode half-blocks anywhere else (including through `tmux` without passthrough). Images are sized to the pane, never upscaled, and take at most 24 rows; one scrolled partly off the top or bottom shows the part that is on screen. Only local files are drawn — a remote URL shows as `[image: alt] (url)` and a missing file as `[image: alt] (not found)`.
+
+Inline images are sized to be read alongside the text, so a big one is shown small. Click it to open the viewer: the picture fills the screen, `+` and `-` (or the mouse wheel) zoom from the whole picture up to 8x, `h` `j` `k` `l` pan once you are in past the edges, `0` returns to the whole picture, and `esc` closes it.
+
+Press `Ctrl+g` or run `:images` to turn images off and on for a busy page. (Not `Ctrl+i`: terminals send that as `Tab`, which switches panes.) `--no-images` (or `MDT_NO_IMAGES=1`) skips the terminal query entirely.
+
 
 ### Mouse support
 
@@ -81,6 +99,7 @@ mdt supports mouse input out of the box:
 - **Scroll wheel** to scroll the preview or file tree
 - **Click** to switch focus between panes
 - **Click a link** in the preview to open it with your system handler
+- **Click an image** in the preview to open it large in a zoomable viewer
 
 No configuration is needed; mouse support is enabled automatically.
 

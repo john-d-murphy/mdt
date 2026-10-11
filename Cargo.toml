@@ -31,6 +31,11 @@ clap = { version = "4", features = ["derive", "env"] }
 fs2 = "0.4"
 fuzzy-matcher = "0.3"
 notify = "7"
+ratatui-image = { version = "11", default-features = false, features = ["crossterm"] }
+image = { version = "0.25.6", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"

@@ -40,3 +40,7 @@ pub(super) const LINK_LINE_DANGLING_STYLE: Style = Style::new().fg(Color::Red);
 pub(super) const LINK_LINE_PROSE_STYLE: Style = Style::new().add_modifier(Modifier::ITALIC);
 /// Columns the lines under a link line (what was said on the edge) hang at.
 pub(super) const LINK_LINE_HANG_COLS: usize = 6;
+
+/// The line that stands in for an image that is not drawn: `[image: alt]`.
+pub(super) const IMAGE_PLACEHOLDER_STYLE: Style =
+    Style::new().add_modifier(Modifier::ITALIC).fg(palette::FG_MUTED);

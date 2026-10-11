@@ -102,6 +102,20 @@ impl DocumentState {
         }
     }
 
+    /// The local image file drawn over rendered line `line_idx`, if one is.
+    ///
+    /// Matches the lines re-wrapping gave the image — the rows a picture is drawn over, or
+    /// the one line of `[image: alt]` text when images are off — so a click lands either way.
+    pub(crate) fn image_at(&self, line_idx: usize) -> Option<&PathBuf> {
+        let total = self.rendered_lines.len();
+        self.rendered_blocks.iter().enumerate().find_map(|(i, block)| {
+            let RenderedBlock::Image { path: Some(path), .. } = block else { return None };
+            let start = *self.block_line_starts.get(i)?;
+            let end = self.block_line_starts.get(i + 1).copied().unwrap_or(total);
+            (start <= line_idx && line_idx < end).then_some(path)
+        })
+    }
+
     /// The document link under display column `col` of rendered line `line_idx`, if any.
     ///
     /// Rendered spans carry no URL, so the link-styled text under the cursor is matched back

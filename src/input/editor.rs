@@ -72,6 +72,10 @@ impl App {
             KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.toggle_split_orientation();
             }
+            // Ctrl+g: images on or off (before the plain `g` arm, which starts `gg`).
+            KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.toggle_images();
+            }
             // Leader key for composed commands (gg).
             KeyCode::Char('g') => {
                 self.pending_key = Some(('g', std::time::Instant::now()));
@@ -224,13 +228,15 @@ impl App {
         match std::fs::write(&path, &content) {
             Ok(()) => {
                 self.document.file_content = content;
-                let (blocks, links) = render_markdown_blocks(&self.document.file_content);
+                let (blocks, links) =
+                    render_markdown_blocks(&self.document.file_content, path.parent());
                 let width = if self.document.viewport_width > 0 {
                     Some(self.document.viewport_width)
                 } else {
                     None
                 };
-                let (rendered, block_line_starts) = rewrap_blocks(&blocks, width);
+                let (rendered, block_line_starts) =
+                    rewrap_blocks(&blocks, width, self.images.layout());
                 self.document.rendered_lines = rendered;
                 self.document.block_line_starts = block_line_starts;
                 self.document.rebuild_lower_cache();
