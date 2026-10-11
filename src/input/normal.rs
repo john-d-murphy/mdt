@@ -103,6 +103,9 @@ impl App {
             },
 
             // --- g: start pending key for gg (both focuses) ---
+            // --- I: look at the images, starting from the one on screen ---
+            KeyCode::Char('I') => self.view_nearest_image(),
+
             // --- Ctrl+g: images on or off (before the plain `g` arm, which starts `gg`).
             //     Not Ctrl+i: a terminal sends that as Tab, mdt's focus key. ---
             KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL) => {

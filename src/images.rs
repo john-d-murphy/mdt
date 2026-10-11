@@ -38,6 +38,8 @@ const ZOOM_STEPS: [u32; 7] = [100, 150, 200, 300, 400, 600, 800];
 pub(crate) struct ImageViewerState {
     /// The file on show; `None` when the viewer is closed.
     pub(crate) path: Option<PathBuf>,
+    /// Which of the document's images it is, so `n`/`N` can step through them.
+    pub(crate) index: usize,
     /// Which of [`ZOOM_STEPS`] is in force.
     step: usize,
     /// Where the view is centred, as a fraction of the image's width and height.
@@ -47,9 +49,10 @@ pub(crate) struct ImageViewerState {
 }
 
 impl ImageViewerState {
-    /// Show `path`, whole and centred.
-    pub(crate) fn open(&mut self, path: PathBuf) {
+    /// Show `path`, the document's `index`th image, whole and centred.
+    pub(crate) fn open(&mut self, path: PathBuf, index: usize) {
         self.path = Some(path);
+        self.index = index;
         self.fit();
         self.area = None;
     }

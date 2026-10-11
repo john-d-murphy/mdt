@@ -70,8 +70,8 @@ impl App {
             return;
         }
         let line_idx = self.document.scroll_offset + usize::from(row - y0);
-        if let Some(path) = self.document.image_at(line_idx).cloned() {
-            self.open_image_viewer(path);
+        if let Some(index) = self.document.image_index_at(line_idx) {
+            self.show_image(index);
             return;
         }
         let url = self.document.link_at(line_idx, usize::from(col - x0)).map(|l| l.url.clone());

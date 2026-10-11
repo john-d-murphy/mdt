@@ -25,6 +25,7 @@ pub(crate) const HELP_KEYS: &[(&str, &str)] = &[
     (":w", "Save"),
     (":q", "Quit"),
     ("Ctrl+g", "Toggle images (:images)"),
+    ("I", "View images (n/N)"),
     ("click image", "Zoom it (+/-, 0)"),
     ("o", "Open links"),
     ("a", "New file"),
