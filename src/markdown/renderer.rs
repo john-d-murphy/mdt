@@ -44,7 +44,8 @@ fn resolve_image(src: &str, base_dir: Option<&Path>) -> (Option<PathBuf>, Option
     } else {
         base_dir.unwrap_or_else(|| Path::new(".")).join(path)
     };
-    let dims = image::image_dimensions(&path).ok();
+    // `image` cannot read SVG, so an SVG is measured by parsing it.
+    let dims = image::image_dimensions(&path).ok().or_else(|| crate::svg::size(&path));
     (Some(path), dims)
 }
 
