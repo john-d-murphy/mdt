@@ -6,6 +6,7 @@ mod help;
 mod image_viewer;
 mod link_picker;
 pub mod modal;
+mod note;
 pub mod preview;
 pub mod status_bar;
 pub mod theme;
@@ -122,6 +123,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         }
         Overlay::FileOp(_) => {
             file_op::draw_file_op_overlay(frame, frame.area(), app);
+        }
+        Overlay::NoteInput => {
+            note::draw_note_overlay(frame, frame.area(), app);
         }
         Overlay::ImageViewer => {
             image_viewer::draw_image_viewer(frame, frame.area(), app);

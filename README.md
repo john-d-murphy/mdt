@@ -65,7 +65,7 @@ Point `mdt` at a directory and you get a file tree, a fully rendered markdown pr
 
 **Terminal integration**
 
-- Mouse support: scroll wheel to scroll, click to switch panes, click a link to open it, click an image to zoom it
+- Mouse support: scroll wheel to scroll, click to switch panes, click a link to open it, click an image to zoom it, drag to select text, right-click to make a note about the page, drag to select text, right-click to make a note about the page
 - Width-aware text wrapping for paragraphs, headings, blockquotes, and lists
 - Code block and table truncation for narrow terminals
 - Terminal background color detection (prevents transparency bleed)
@@ -97,6 +97,8 @@ The binary will be at `target/release/mdt`.
 
 ```
 mdt [path] [--max-file-size <bytes>] [--max-width <columns>] [--center] [--no-images]
+    [--note-command <cmd>]
+    [--note-command <cmd>]
 ```
 
 Opens the given directory, or opens the given file with the file tree rooted at its directory. Defaults to the current directory if no path is provided.
@@ -107,6 +109,8 @@ Opens the given directory, or opens the given file with the file tree rooted at 
 | `--max-width <columns>` | Maximum render width in columns; also `MDT_MAX_WIDTH` env var (default: terminal width) |
 | `--no-images` | Don't draw images, show `[image: alt]` instead; also `MDT_NO_IMAGES=1` |
 | `--center` | Centre the text in the pane, where `--max-width` leaves room; also `MDT_CENTER=1` |
+| `--note-command <cmd>` | Shell command a right-click makes a note with; also `MDT_NOTE_COMMAND` |
+| `--note-command <cmd>` | Shell command a right-click makes a note with; also `MDT_NOTE_COMMAND` |
 
 When `mdt` starts, you'll see the welcome screen. Press `Ctrl+e` to open the file tree, navigate to a markdown file, and press `Enter` to preview it.
 
@@ -190,6 +194,47 @@ When `mdt` starts, you'll see the welcome screen. Press `Ctrl+e` to open the fil
 | `?` | Toggle help overlay |
 | `q` | Quit |
 | `Ctrl+c` | Force quit from any mode |
+
+## Taking notes about what you are reading
+
+Drag over the text to select some of it, then right-click to open a box. A note can be the
+passage you selected, something you typed, or both — so with a selection in hand, `Ctrl+d`
+on an empty box notes the passage alone. The comment wraps and takes as many lines as it
+needs; Enter starts another line.
+
+| Key | Action |
+|---|---|
+| `Ctrl+d` | make the note |
+| `Ctrl+e` | hand the terminal to the note command so it can open an editor — with `examples/quine-note.sh` that is `quine new -e`, which opens the note itself, front matter and all, exactly as `n -e` does |
+| `esc` | abandon it |
+
+mdt runs the command given by `--note-command` (or `MDT_NOTE_COMMAND`). A line the command
+writes to `$MDT_NOTE_RESULT` goes in the status bar; printing it works too, but only for
+`Ctrl+d` — with the terminal handed over, anything printed is about to be drawn over.
+
+mdt itself knows nothing about where notes go. The command gets what mdt knows, in its
+environment:
+
+| Variable | What it is |
+|---|---|
+| `MDT_NOTE_COMMENT` | What you typed into the box |
+| `MDT_NOTE_SELECTION` | The text you dragged over, if any |
+| `MDT_NOTE_REF` | The page's own id, where the page says what it is (see below) |
+| `MDT_NOTE_FILE` | The file being read; empty when it came down a pipe |
+| `MDT_NOTE_LINE` | The line that was right-clicked |
+| `MDT_NOTE_EDIT` | `1` when mdt has handed the terminal over (`Ctrl+e`), so the command may open an editor |
+| `MDT_NOTE_RESULT` | A file to write one line into, for the status bar |
+
+`MDT_NOTE_REF` is read from the metadata line a [quine](https://github.com/indeterminacy/homunculus)
+page carries under its title — `` `essay` · 2025-09-21 · `room0` `` — so it works for a page
+piped in from `quine read`, which has no file of its own. A page without that line leaves it
+empty, and the note has nothing to attach to.
+
+`examples/quine-note.sh` is a working command for quine: the selected passage opens the note
+and the comment follows it, since `quine new` takes a note's title from the start of its body;
+then the note is linked back to the page with `informed-by`. With
+`MDT_NOTE_EDIT` set it opens the new note in `$VISUAL`/`$EDITOR` — the real file, front
+matter and all, the same thing `n -e` gives.
 
 ## Built With
 

@@ -18,6 +18,9 @@ use crate::markdown::rewrap_blocks;
 /// Draw the preview pane with virtual scrolling.
 ///
 /// # Side Effects (Intentional)
+/// How selected text is marked out.
+const SELECTION_STYLE: Style = Style::new().bg(Color::DarkGray);
+
 /// Padding between the preview pane's area and its first rendered line. Mouse hit-testing
 /// (clicking a link) maps terminal cells back through this.
 pub(crate) const PREVIEW_PADDING: Padding = Padding::new(2, 2, 1, 0);
@@ -117,6 +120,27 @@ pub fn draw_preview(frame: &mut Frame, app: &mut App, area: Rect) {
             })
             .collect();
         Text::from(lines)
+    };
+
+    // Mark out a dragged-over selection, over the top of any search highlighting.
+    let text = match app.selection.range() {
+        Some((first, last)) => Text::from(
+            text.lines
+                .into_iter()
+                .enumerate()
+                .map(|(i, line)| {
+                    let index = app.document.scroll_offset + i;
+                    let from = if index == first.0 { first.1 } else { 0 };
+                    let to = if index == last.0 { last.1 } else { usize::MAX };
+                    if index < first.0 || index > last.0 {
+                        line
+                    } else {
+                        style_columns(line, from, to, SELECTION_STYLE)
+                    }
+                })
+                .collect::<Vec<_>>(),
+        ),
+        None => text,
     };
 
     // scroll((0, 0)) because we already sliced the lines ourselves.
@@ -287,6 +311,37 @@ fn highlight_line<'a>(line: Line<'a>, query: &str, highlight_style: Style) -> Li
         new_spans.extend(highlight_span(span, query, highlight_style));
     }
     Line { spans: new_spans, style: line.style, alignment: line.alignment }
+}
+
+/// Patch `style` onto the part of `line` lying in display columns `from..to`, splitting
+/// spans at those boundaries.
+fn style_columns<'a>(line: Line<'a>, from: usize, to: usize, style: Style) -> Line<'a> {
+    use unicode_segmentation::UnicodeSegmentation;
+    use unicode_width::UnicodeWidthStr;
+
+    let mut spans: Vec<Span<'a>> = Vec::with_capacity(line.spans.len() + 2);
+    let mut col = 0;
+    for span in line.spans {
+        let mut run = String::new();
+        let mut run_selected = None;
+        for grapheme in span.content.as_ref().graphemes(true) {
+            let selected = col >= from && col < to;
+            if run_selected.is_some_and(|was| was != selected) {
+                let patched =
+                    if run_selected == Some(true) { span.style.patch(style) } else { span.style };
+                spans.push(Span::styled(std::mem::take(&mut run), patched));
+            }
+            run_selected = Some(selected);
+            run.push_str(grapheme);
+            col += UnicodeWidthStr::width(grapheme);
+        }
+        if !run.is_empty() {
+            let patched =
+                if run_selected == Some(true) { span.style.patch(style) } else { span.style };
+            spans.push(Span::styled(run, patched));
+        }
+    }
+    Line { spans, style: line.style, alignment: line.alignment }
 }
 
 /// Split a single span at match boundaries, applying highlight style to matching portions.
