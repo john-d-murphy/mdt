@@ -5,6 +5,7 @@ mod event;
 mod file_finder;
 mod image_viewer;
 mod link_picker;
+mod note;
 mod state;
 mod tree;
 mod types;
@@ -31,6 +32,7 @@ pub(crate) use types::{FileOp, Overlay, SplitOrientation};
 pub(crate) use document::{DocumentState, TreeViewState};
 pub(crate) use state::{
     CursorState, EditorState, FileFinderState, LinkPickerState, LivePreviewState, SearchState,
+    SelectionState,
 };
 
 /// Top-level application state.
@@ -70,6 +72,14 @@ pub struct App {
     pub(crate) images: crate::images::ImageState,
     /// The image viewer overlay — which picture is open, and how it is being looked at.
     pub(crate) image_viewer: crate::images::ImageViewerState,
+    /// Text dragged over in the preview.
+    pub(crate) selection: SelectionState,
+    /// What is being typed into the note box.
+    pub(crate) note_input: String,
+    /// The rendered line a note is about.
+    pub(crate) note_line: usize,
+    /// The command a note is made with (`--note-command` / `MDT_NOTE_COMMAND`).
+    pub(crate) note_command: Option<String>,
 }
 
 impl App {
@@ -178,6 +188,10 @@ impl App {
             stdin_mode: false,
             images: crate::images::ImageState::disabled(),
             image_viewer: crate::images::ImageViewerState::default(),
+            selection: SelectionState::default(),
+            note_input: String::new(),
+            note_line: 0,
+            note_command: None,
         };
 
         if let Some(file) = initial_file {
@@ -247,6 +261,10 @@ impl App {
             stdin_mode: true,
             images: crate::images::ImageState::disabled(),
             image_viewer: crate::images::ImageViewerState::default(),
+            selection: SelectionState::default(),
+            note_input: String::new(),
+            note_line: 0,
+            note_command: None,
         }
     }
 

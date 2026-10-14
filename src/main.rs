@@ -55,6 +55,12 @@ struct Cli {
     /// Centre the text in the pane, where --max-width leaves room (also `MDT_CENTER=1`)
     #[arg(long, env = "MDT_CENTER")]
     center: bool,
+
+    /// Shell command a right-click makes a note with; it is given MDT_NOTE_COMMENT,
+    /// MDT_NOTE_SELECTION, MDT_NOTE_REF, MDT_NOTE_FILE and MDT_NOTE_LINE in its environment
+    /// (also `MDT_NOTE_COMMAND`)
+    #[arg(long, env = "MDT_NOTE_COMMAND")]
+    note_command: Option<String>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -114,12 +120,14 @@ fn main() -> anyhow::Result<()> {
         app.max_file_size = cli.max_file_size;
         app.max_width = cli.max_width.map(usize::from);
         app.center = cli.center;
+        app.note_command.clone_from(&cli.note_command);
         (app, None, None, None, None)
     } else {
         let mut app = App::new(&path, bg_color)?;
         app.max_file_size = cli.max_file_size;
         app.max_width = cli.max_width.map(usize::from);
         app.center = cli.center;
+        app.note_command.clone_from(&cli.note_command);
 
         // Acquire an advisory lock to prevent concurrent mdt instances on the same directory.
         // The lock lives in the per-user runtime directory, never inside the tree being
