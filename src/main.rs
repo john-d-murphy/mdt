@@ -260,6 +260,17 @@ fn run_loop(
             }
         }
 
+        // The note box asked for an editor: hand the terminal over, then take it back.
+        if let Some(draft) = app.pending_editor.take() {
+            match hand_terminal_to_editor(terminal, &draft) {
+                Ok(()) => app.note_from_editor(&draft),
+                Err(e) => app.note_editor_failed(&draft, &e.to_string()),
+            }
+            // The alternate screen is new, so the terminal is holding no pictures now.
+            app.images.forget_encodings();
+            needs_redraw = true;
+        }
+
         // A picture finished being read in the background — show it.
         if app.images.take_decoded() {
             needs_redraw = true;
@@ -334,5 +345,41 @@ fn reattach_stdin_to_tty() {
         unsafe {
             libc::dup2(tty.as_raw_fd(), libc::STDIN_FILENO);
         }
+    }
+}
+
+/// Leave the alternate screen, run `$VISUAL`/`$EDITOR` on `draft`, and take the terminal
+/// back. The editor's own command may carry arguments (`code -w`), so on unix it goes
+/// through the shell with the path as a positional parameter rather than interpolated.
+fn hand_terminal_to_editor(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    draft: &std::path::Path,
+) -> anyhow::Result<()> {
+    let editor = std::env::var("VISUAL")
+        .or_else(|_| std::env::var("EDITOR"))
+        .unwrap_or_else(|_| "vi".to_string());
+
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+
+    let ran = if cfg!(windows) {
+        std::process::Command::new(&editor).arg(draft).status()
+    } else {
+        std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("{editor} \"$1\""))
+            .arg("sh")
+            .arg(draft)
+            .status()
+    };
+
+    enable_raw_mode()?;
+    execute!(terminal.backend_mut(), EnterAlternateScreen, EnableMouseCapture)?;
+    terminal.clear()?;
+
+    match ran {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => anyhow::bail!("{editor} {status}"),
+        Err(e) => anyhow::bail!("{editor}: {e}"),
     }
 }

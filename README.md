@@ -197,9 +197,17 @@ When `mdt` starts, you'll see the welcome screen. Press `Ctrl+e` to open the fil
 
 ## Taking notes about what you are reading
 
-Drag over the text to select some of it, then right-click to open a box, say what you think,
-and press Enter. mdt runs the command given by `--note-command` (or `MDT_NOTE_COMMAND`) and
-puts whatever it prints in the status bar.
+Drag over the text to select some of it, then right-click to open a box and say what you
+think. The comment wraps and takes as many lines as it needs; Enter starts another line.
+
+| Key | Action |
+|---|---|
+| `Ctrl+d` | make the note |
+| `Ctrl+e` | write it in `$VISUAL`/`$EDITOR` instead, as markdown; saving an empty file makes no note |
+| `esc` | abandon it |
+
+mdt runs the command given by `--note-command` (or `MDT_NOTE_COMMAND`) and puts whatever it
+prints in the status bar.
 
 mdt itself knows nothing about where notes go. The command gets what mdt knows, in its
 environment:

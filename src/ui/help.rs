@@ -30,7 +30,7 @@ pub(crate) const HELP_KEYS: &[(&str, &str)] = &[
     ("I", "View images (n/N)"),
     ("click image", "Zoom it (+/-, 0)"),
     ("drag", "Select text"),
-    ("right-click", "Note on this page"),
+    ("right-click", "Note (ctrl+d, ctrl+e)"),
     ("o", "Open links"),
     ("a", "New file"),
     ("A", "New directory"),

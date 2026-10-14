@@ -283,6 +283,16 @@ impl ImageState {
         self.viewer_encoding = None;
     }
 
+    /// Forget what was encoded for the terminal, keeping the pictures themselves. Leaving
+    /// and coming back to the alternate screen loses whatever the terminal was holding, so
+    /// everything has to be sent again — but it does not have to be read again.
+    pub(crate) fn forget_encodings(&mut self) {
+        for cached in self.cache.values_mut().flatten() {
+            cached.sliced = None;
+        }
+        self.viewer_encoding = None;
+    }
+
     /// Read a document's pictures on a background thread, and scale them there too, so that
     /// scrolling onto one costs nothing but the encode. Reading a megapixel JPEG and scaling
     /// it down are together almost all of the work of showing one.

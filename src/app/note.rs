@@ -52,6 +52,39 @@ impl App {
         })
     }
 
+    /// Ask the event loop to open `$EDITOR` on the note being written. Only the loop owns
+    /// the terminal, so only it can step out of the way.
+    pub(crate) fn request_note_editor(&mut self) {
+        let draft = std::env::temp_dir().join(format!("mdt-note-{}.md", std::process::id()));
+        if let Err(e) = std::fs::write(&draft, &self.note_input) {
+            self.status_message = format!("Could not write the draft: {e}");
+            return;
+        }
+        self.pending_editor = Some(draft);
+    }
+
+    /// The editor has closed: what it left behind is the note, and an empty file is no note.
+    pub(crate) fn note_from_editor(&mut self, draft: &std::path::Path) {
+        let written = std::fs::read_to_string(draft).unwrap_or_default();
+        let _ = std::fs::remove_file(draft);
+        self.note_input = written.trim_end().to_string();
+        if self.note_input.trim().is_empty() {
+            self.note_input.clear();
+            self.overlay = Overlay::None;
+            self.status_message = "Nothing written, so no note".to_string();
+            return;
+        }
+        self.submit_note();
+    }
+
+    /// No editor could be started: keep the draft out of the way and say so.
+    pub(crate) fn note_editor_failed(&mut self, draft: &std::path::Path, why: &str) {
+        let _ = std::fs::remove_file(draft);
+        self.overlay = Overlay::None;
+        self.note_input.clear();
+        self.status_message = format!("Could not open an editor: {why}");
+    }
+
     /// Run the note command with what has been gathered, and say how it went.
     pub(crate) fn submit_note(&mut self) {
         let comment = std::mem::take(&mut self.note_input);
