@@ -260,12 +260,12 @@ fn run_loop(
             }
         }
 
-        // The note box asked for an editor: hand the terminal over, then take it back.
-        if let Some(draft) = app.pending_editor.take() {
-            match hand_terminal_to_editor(terminal, &draft) {
-                Ok(()) => app.note_from_editor(&draft),
-                Err(e) => app.note_editor_failed(&draft, &e.to_string()),
-            }
+        // The note box asked for an editor: hand the terminal to the note command, which
+        // opens one of its own, then take it back.
+        if std::mem::take(&mut app.note_in_editor) {
+            release_terminal(terminal)?;
+            app.run_note_in_editor();
+            reclaim_terminal(terminal)?;
             // The alternate screen is new, so the terminal is holding no pictures now.
             app.images.forget_encodings();
             needs_redraw = true;
@@ -348,38 +348,19 @@ fn reattach_stdin_to_tty() {
     }
 }
 
-/// Leave the alternate screen, run `$VISUAL`/`$EDITOR` on `draft`, and take the terminal
-/// back. The editor's own command may carry arguments (`code -w`), so on unix it goes
-/// through the shell with the path as a positional parameter rather than interpolated.
-fn hand_terminal_to_editor(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    draft: &std::path::Path,
-) -> anyhow::Result<()> {
-    let editor = std::env::var("VISUAL")
-        .or_else(|_| std::env::var("EDITOR"))
-        .unwrap_or_else(|_| "vi".to_string());
-
+/// Give the terminal back to whatever is run next: out of the alternate screen, out of raw
+/// mode, mouse reporting off. A note command run from here may want to open an editor, and
+/// an editor needs the terminal to itself.
+fn release_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> anyhow::Result<()> {
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+    Ok(())
+}
 
-    let ran = if cfg!(windows) {
-        std::process::Command::new(&editor).arg(draft).status()
-    } else {
-        std::process::Command::new("sh")
-            .arg("-c")
-            .arg(format!("{editor} \"$1\""))
-            .arg("sh")
-            .arg(draft)
-            .status()
-    };
-
+/// Take it back and redraw from nothing: the screen that comes back is a new one.
+fn reclaim_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> anyhow::Result<()> {
     enable_raw_mode()?;
     execute!(terminal.backend_mut(), EnterAlternateScreen, EnableMouseCapture)?;
     terminal.clear()?;
-
-    match ran {
-        Ok(status) if status.success() => Ok(()),
-        Ok(status) => anyhow::bail!("{editor} {status}"),
-        Err(e) => anyhow::bail!("{editor}: {e}"),
-    }
+    Ok(())
 }

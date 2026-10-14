@@ -17,6 +17,8 @@
 #   MDT_NOTE_REF        the page's quine id, from the metadata under its title
 #   MDT_NOTE_FILE       the file being read, empty when it came down a pipe
 #   MDT_NOTE_LINE       the line that was right-clicked
+#   MDT_NOTE_EDIT       set when mdt has handed over the terminal (ctrl+e), so an editor
+#                       can be opened; unset for a note made straight away (ctrl+d)
 #
 # Whatever this prints lands in mdt's status bar.
 set -eu
@@ -29,8 +31,14 @@ if [ -n "${MDT_NOTE_SELECTION:-}" ]; then
 $(printf '%s\n' "$MDT_NOTE_SELECTION" | sed 's/^/> /')"
 fi
 
-# `quine new` reads the body on stdin and prints the new note's path.
-note=$(printf '%s\n' "$body" | quine new --no-edit)
+# `quine new` reads the body on stdin and prints the new note's path. With the terminal in
+# hand, `-e` opens $VISUAL/$EDITOR on the note itself — front matter and all, the same thing
+# `n -e` gives — and what is saved is the note.
+if [ -n "${MDT_NOTE_EDIT:-}" ]; then
+    note=$(printf '%s\n' "$body" | quine new -e)
+else
+    note=$(printf '%s\n' "$body" | quine new --no-edit)
+fi
 
 # No id on the page — an ordinary markdown file, or something else piped in — so the note
 # stands on its own.

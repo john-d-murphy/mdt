@@ -143,7 +143,7 @@ Drag over the text to select some of it, then right-click to open a box and say 
 | Key | Action |
 | --- | ------ |
 | `Ctrl+d` | Make the note |
-| `Ctrl+e` | Write it in `$VISUAL`/`$EDITOR` instead, as markdown. mdt steps out of the way while the editor has the terminal; what you save is the note, and an empty file makes none |
+| `Ctrl+e` | Hand the terminal to the note command so that it can open an editor. mdt leaves the alternate screen while the command has the terminal and takes it back afterwards. Needs a first line to start from |
 | `esc` | Abandon it |
 
 mdt runs `--note-command` through your shell and puts whatever it prints in the status bar — so a command that echoes the new note's name will say so, and one that fails says why.
@@ -157,6 +157,7 @@ mdt knows nothing about where notes go. The command is given what mdt does know,
 | `MDT_NOTE_REF` | The page's own id, where the page says what it is |
 | `MDT_NOTE_FILE` | The file being read; empty when it came down a pipe |
 | `MDT_NOTE_LINE` | The line that was right-clicked |
+| `MDT_NOTE_EDIT` | `1` when mdt has handed over the terminal (`Ctrl+e`), so the command may open an editor; unset otherwise |
 
 `MDT_NOTE_REF` comes from the metadata line a [quine](https://github.com/indeterminacy/homunculus) page carries under its title:
 
@@ -168,7 +169,7 @@ mdt knows nothing about where notes go. The command is given what mdt does know,
 
 The last backticked word there is the page's id. It is read from the page rather than the file, so it works for a page piped in from `quine read`, which has no file of its own. A page without that line leaves it empty, and the note has nothing to attach to.
 
-The repository's `examples/quine-note.sh` is a working command for quine: it makes a note of the comment with the selection quoted beneath it, then links the note back to the page with `informed-by`.
+The repository's `examples/quine-note.sh` is a working command for quine: it makes a note of the comment with the selection quoted beneath it, then links the note back to the page with `informed-by`. With `MDT_NOTE_EDIT` set it runs `quine new -e`, so `Ctrl+e` opens the real note file in your editor — front matter and all, the same thing `n -e` gives — rather than a scratch file mdt would have to interpret.
 
 ### Background color detection
 

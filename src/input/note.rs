@@ -114,14 +114,22 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_e_asks_for_an_editor_and_leaves_the_draft_for_it() {
+    fn ctrl_e_hands_the_note_to_the_command_with_the_terminal() {
         let (_dir, mut app) = app_noting("mdt-test-note-keys-ctrl-e");
         type_in(&mut app, "a start");
         ctrl(&mut app, 'e');
 
-        let draft = app.pending_editor.clone().expect("an editor was asked for");
-        assert_eq!(std::fs::read_to_string(&draft).unwrap(), "a start");
-        assert_eq!(draft.extension().and_then(|e| e.to_str()), Some("md"));
-        let _ = std::fs::remove_file(draft);
+        assert!(app.note_in_editor, "the event loop is asked to step out of the way");
+        assert!(matches!(app.overlay, Overlay::None), "the box is out of the way too");
+        assert_eq!(app.note_input, "a start", "and the first line is kept for the command");
+    }
+
+    #[test]
+    fn ctrl_e_with_nothing_written_says_to_write_something() {
+        let (_dir, mut app) = app_noting("mdt-test-note-keys-ctrl-e-empty");
+        ctrl(&mut app, 'e');
+        assert!(!app.note_in_editor);
+        assert!(matches!(app.overlay, Overlay::NoteInput), "still in the box");
+        assert_eq!(app.status_message, "Write a first line, then ctrl+e opens it");
     }
 }

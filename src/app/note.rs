@@ -52,78 +52,14 @@ impl App {
         })
     }
 
-    /// Ask the event loop to open `$EDITOR` on the note being written. Only the loop owns
-    /// the terminal, so only it can step out of the way.
-    pub(crate) fn request_note_editor(&mut self) {
-        let draft = std::env::temp_dir().join(format!("mdt-note-{}.md", std::process::id()));
-        if let Err(e) = std::fs::write(&draft, &self.note_input) {
-            self.status_message = format!("Could not write the draft: {e}");
-            return;
-        }
-        self.pending_editor = Some(draft);
-    }
-
-    /// The editor has closed: what it left behind is the note, and an empty file is no note.
-    pub(crate) fn note_from_editor(&mut self, draft: &std::path::Path) {
-        let written = std::fs::read_to_string(draft).unwrap_or_default();
-        let _ = std::fs::remove_file(draft);
-        self.note_input = written.trim_end().to_string();
-        if self.note_input.trim().is_empty() {
-            self.note_input.clear();
-            self.overlay = Overlay::None;
-            self.status_message = "Nothing written, so no note".to_string();
-            return;
-        }
-        self.submit_note();
-    }
-
-    /// No editor could be started: keep the draft out of the way and say so.
-    pub(crate) fn note_editor_failed(&mut self, draft: &std::path::Path, why: &str) {
-        let _ = std::fs::remove_file(draft);
-        self.overlay = Overlay::None;
-        self.note_input.clear();
-        self.status_message = format!("Could not open an editor: {why}");
-    }
-
-    /// Run the note command with what has been gathered, and say how it went.
+    /// `Ctrl+d`: run the note command and report what it said.
     pub(crate) fn submit_note(&mut self) {
-        let comment = std::mem::take(&mut self.note_input);
-        self.overlay = Overlay::None;
-
-        let Some(command) = self.note_command.clone() else {
-            self.status_message = "No note command: start mdt with --note-command".to_string();
-            return;
-        };
-        if comment.trim().is_empty() {
-            self.status_message = "Nothing written, so no note".to_string();
-            return;
-        }
-
-        let selection = self.document.selected_text(&self.selection).unwrap_or_default();
-        let file = self
-            .document
-            .current_file
-            .as_ref()
-            .map(|p| p.display().to_string())
-            .unwrap_or_default();
-        let reference = self.source_ref().unwrap_or_default();
-
-        let (shell, flag) = if cfg!(windows) { ("cmd", "/C") } else { ("sh", "-c") };
-        let output = std::process::Command::new(shell)
-            .arg(flag)
-            .arg(&command)
-            .env("MDT_NOTE_COMMENT", &comment)
-            .env("MDT_NOTE_SELECTION", &selection)
-            .env("MDT_NOTE_FILE", &file)
-            .env("MDT_NOTE_REF", &reference)
-            .env("MDT_NOTE_LINE", (self.note_line + 1).to_string())
-            .output();
-
+        let Some(mut note) = self.take_note(false) else { return };
+        let output = note.command.output();
         self.status_message = match output {
-            Ok(done) if done.status.success() => match first_line(&done.stdout) {
-                Some(said) => said,
-                None => "Note made".to_string(),
-            },
+            Ok(done) if done.status.success() => {
+                first_line(&done.stdout).unwrap_or_else(|| "Note made".to_string())
+            }
             Ok(done) => match first_line(&done.stderr) {
                 Some(said) => format!("Note failed: {said}"),
                 None => format!("Note command failed: {}", done.status),
@@ -131,6 +67,81 @@ impl App {
             Err(e) => format!("Could not run the note command: {e}"),
         };
     }
+
+    /// `Ctrl+e`: ask the event loop to run the note command with the terminal handed over,
+    /// so the command can open an editor on the note it makes — `quine new -e` does, which
+    /// means the file being edited is the real note, front matter and all.
+    pub(crate) fn request_note_editor(&mut self) {
+        if self.note_input.trim().is_empty() {
+            self.status_message = "Write a first line, then ctrl+e opens it".to_string();
+            return;
+        }
+        if self.note_command.is_none() {
+            self.status_message = "No note command: start mdt with --note-command".to_string();
+            return;
+        }
+        self.overlay = Overlay::None;
+        self.note_in_editor = true;
+    }
+
+    /// Run the note command with the terminal already handed over: its own output goes to
+    /// the screen, which the event loop is about to take back, so only how it ended is
+    /// reported here.
+    pub(crate) fn run_note_in_editor(&mut self) {
+        let Some(mut note) = self.take_note(true) else { return };
+        self.status_message = match note.command.status() {
+            Ok(status) if status.success() => "Note made".to_string(),
+            Ok(status) => format!("Note command failed: {status}"),
+            Err(e) => format!("Could not run the note command: {e}"),
+        };
+    }
+
+    /// The note command, loaded with everything mdt knows, and the box emptied. `None` —
+    /// having said why — when there is nothing to make a note with.
+    fn take_note(&mut self, in_editor: bool) -> Option<Note> {
+        let comment = std::mem::take(&mut self.note_input);
+        self.overlay = Overlay::None;
+
+        let Some(command) = self.note_command.clone() else {
+            self.status_message = "No note command: start mdt with --note-command".to_string();
+            return None;
+        };
+        if comment.trim().is_empty() {
+            self.status_message = "Nothing written, so no note".to_string();
+            return None;
+        }
+
+        let (shell, flag) = if cfg!(windows) { ("cmd", "/C") } else { ("sh", "-c") };
+        let mut process = std::process::Command::new(shell);
+        process
+            .arg(flag)
+            .arg(&command)
+            .env("MDT_NOTE_COMMENT", &comment)
+            .env(
+                "MDT_NOTE_SELECTION",
+                self.document.selected_text(&self.selection).unwrap_or_default(),
+            )
+            .env(
+                "MDT_NOTE_FILE",
+                self.document
+                    .current_file
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default(),
+            )
+            .env("MDT_NOTE_REF", self.source_ref().unwrap_or_default())
+            .env("MDT_NOTE_LINE", (self.note_line + 1).to_string());
+        if in_editor {
+            // The command has the terminal: it may open an editor.
+            process.env("MDT_NOTE_EDIT", "1");
+        }
+        Some(Note { command: process })
+    }
+}
+
+/// A note command, ready to run.
+struct Note {
+    command: std::process::Command,
 }
 
 /// The first line a command said, if it said anything.
@@ -217,6 +228,24 @@ mod tests {
         app.note_input = "note".to_string();
         app.submit_note();
         assert_eq!(app.status_message, "[resonance]", "{}", app.status_message);
+    }
+
+    #[test]
+    fn the_editor_run_tells_the_command_it_has_the_terminal() {
+        // `test` says nothing, so nothing is written over the screen being handed back.
+        let (_dir, mut app) =
+            app_with(PAGE, Some("test -n \"$MDT_NOTE_EDIT\" -a -n \"$MDT_NOTE_COMMENT\""));
+        app.note_input = "a start".to_string();
+        app.run_note_in_editor();
+        assert_eq!(app.status_message, "Note made");
+    }
+
+    #[test]
+    fn the_quick_run_does_not_claim_to_have_the_terminal() {
+        let (_dir, mut app) = app_with(PAGE, Some("echo \"edit=[${MDT_NOTE_EDIT:-}]\""));
+        app.note_input = "x".to_string();
+        app.submit_note();
+        assert_eq!(app.status_message, "edit=[]");
     }
 
     #[test]

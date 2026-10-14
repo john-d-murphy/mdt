@@ -80,8 +80,9 @@ pub struct App {
     pub(crate) note_line: usize,
     /// The command a note is made with (`--note-command` / `MDT_NOTE_COMMAND`).
     pub(crate) note_command: Option<String>,
-    /// A draft the event loop should open an editor on — only it owns the terminal.
-    pub(crate) pending_editor: Option<PathBuf>,
+    /// Set when the note command should be run with the terminal handed over to it, so
+    /// that it can open an editor of its own. Only the event loop owns the terminal.
+    pub(crate) note_in_editor: bool,
 }
 
 impl App {
@@ -194,7 +195,7 @@ impl App {
             note_input: String::new(),
             note_line: 0,
             note_command: None,
-            pending_editor: None,
+            note_in_editor: false,
         };
 
         if let Some(file) = initial_file {
@@ -268,7 +269,7 @@ impl App {
             note_input: String::new(),
             note_line: 0,
             note_command: None,
-            pending_editor: None,
+            note_in_editor: false,
         }
     }
 

@@ -203,7 +203,7 @@ think. The comment wraps and takes as many lines as it needs; Enter starts anoth
 | Key | Action |
 |---|---|
 | `Ctrl+d` | make the note |
-| `Ctrl+e` | write it in `$VISUAL`/`$EDITOR` instead, as markdown; saving an empty file makes no note |
+| `Ctrl+e` | hand the terminal to the note command so it can open an editor — with `examples/quine-note.sh` that is `quine new -e`, which opens the note itself, front matter and all, exactly as `n -e` does. Needs a first line to start from |
 | `esc` | abandon it |
 
 mdt runs the command given by `--note-command` (or `MDT_NOTE_COMMAND`) and puts whatever it
@@ -226,7 +226,9 @@ piped in from `quine read`, which has no file of its own. A page without that li
 empty, and the note has nothing to attach to.
 
 `examples/quine-note.sh` is a working command for quine: it makes a note of the comment with
-the selection quoted beneath it, then links the note back to the page with `informed-by`.
+the selection quoted beneath it, then links the note back to the page with `informed-by`. With
+`MDT_NOTE_EDIT` set it runs `quine new -e`, so `Ctrl+e` opens the real note file in your
+editor rather than a scratch file mdt would have to interpret.
 
 ## Built With
 
