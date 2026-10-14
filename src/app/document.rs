@@ -102,18 +102,38 @@ impl DocumentState {
         }
     }
 
-    /// The local image file drawn over rendered line `line_idx`, if one is.
+    /// Every local image in the document, in order: its file and the rendered line it starts
+    /// on. The index into this list is what the viewer steps through.
+    pub(crate) fn images(&self) -> Vec<(PathBuf, usize)> {
+        let total = self.rendered_lines.len();
+        self.rendered_blocks
+            .iter()
+            .enumerate()
+            .filter_map(|(i, block)| {
+                let RenderedBlock::Image { path: Some(path), .. } = block else { return None };
+                let start = *self.block_line_starts.get(i)?;
+                Some((path.clone(), start.min(total)))
+            })
+            .collect()
+    }
+
+    /// Which of [`Self::images`] is drawn over rendered line `line_idx`, if one is.
     ///
     /// Matches the lines re-wrapping gave the image — the rows a picture is drawn over, or
     /// the one line of `[image: alt]` text when images are off — so a click lands either way.
-    pub(crate) fn image_at(&self, line_idx: usize) -> Option<&PathBuf> {
+    pub(crate) fn image_index_at(&self, line_idx: usize) -> Option<usize> {
         let total = self.rendered_lines.len();
-        self.rendered_blocks.iter().enumerate().find_map(|(i, block)| {
-            let RenderedBlock::Image { path: Some(path), .. } = block else { return None };
+        let mut index = 0;
+        for (i, block) in self.rendered_blocks.iter().enumerate() {
+            let RenderedBlock::Image { path: Some(_), .. } = block else { continue };
             let start = *self.block_line_starts.get(i)?;
             let end = self.block_line_starts.get(i + 1).copied().unwrap_or(total);
-            (start <= line_idx && line_idx < end).then_some(path)
-        })
+            if start <= line_idx && line_idx < end {
+                return Some(index);
+            }
+            index += 1;
+        }
+        None
     }
 
     /// The document link under display column `col` of rendered line `line_idx`, if any.

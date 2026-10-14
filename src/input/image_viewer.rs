@@ -12,6 +12,8 @@ impl App {
             KeyCode::Char('+' | '=') => self.image_viewer.zoom_in(),
             KeyCode::Char('-' | '_') => self.image_viewer.zoom_out(),
             KeyCode::Char('0') => self.image_viewer.fit(),
+            KeyCode::Char('n' | ']') => self.step_image(1),
+            KeyCode::Char('N' | '[') => self.step_image(-1),
             KeyCode::Char('h') | KeyCode::Left => self.image_viewer.pan(-1.0, 0.0),
             KeyCode::Char('l') | KeyCode::Right => self.image_viewer.pan(1.0, 0.0),
             KeyCode::Char('k') | KeyCode::Up => self.image_viewer.pan(0.0, -1.0),
@@ -32,14 +34,14 @@ mod tests {
     /// An app with the viewer open on a 200×100 image.
     fn viewing(name: &str) -> (TempTestDir, App) {
         let dir = TempTestDir::new(name);
-        dir.create_file("t.md", "# T");
-        let path = dir.path().join("cat.png");
-        image::RgbImage::new(200, 100).save(&path).unwrap();
+        image::RgbImage::new(200, 100).save(dir.path().join("cat.png")).unwrap();
+        dir.create_file("t.md", "![cat](cat.png)\n");
 
         let mut app = App::new(dir.path(), Color::Reset).unwrap();
         app.images =
             crate::images::ImageState::with_picker(ratatui_image::picker::Picker::halfblocks());
-        app.open_image_viewer(path);
+        app.open_file(&dir.path().join("t.md"));
+        app.show_image(0);
         (dir, app)
     }
 

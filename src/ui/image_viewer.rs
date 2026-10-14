@@ -20,13 +20,18 @@ pub(super) fn draw_image_viewer(frame: &mut Frame, area: Rect, app: &mut App) {
         .unwrap_or("image")
         .to_string();
     let zoom = app.image_viewer.zoom();
-    let title = format!("{name}   {zoom}%");
+    let count = app.document.images().len();
+    let title = if count > 1 {
+        format!("{name}   {zoom}%   {} of {count}", app.image_viewer.index + 1)
+    } else {
+        format!("{name}   {zoom}%")
+    };
     let content = modal::render_modal_frame(
         frame,
         popup,
         &title,
         None,
-        &[("zoom", "+/-"), ("pan", "hjkl"), ("whole", "0")],
+        &[("zoom", "+/-"), ("pan", "hjkl"), ("whole", "0"), ("image", "n/N")],
         app.bg_color,
         false,
     );
@@ -47,14 +52,16 @@ mod tests {
     #[test]
     fn the_viewer_paints_the_picture_and_its_frame() {
         let dir = TempTestDir::new("mdt-test-ui-viewer");
-        dir.create_file("t.md", "# T");
-        let path = dir.path().join("red.png");
-        image::RgbImage::from_pixel(120, 80, image::Rgb([255, 0, 0])).save(&path).unwrap();
+        image::RgbImage::from_pixel(120, 80, image::Rgb([255, 0, 0]))
+            .save(dir.path().join("red.png"))
+            .unwrap();
+        dir.create_file("t.md", "![red](red.png)\n");
 
         let mut app = App::new(dir.path(), Color::Reset).unwrap();
         app.images =
             crate::images::ImageState::with_picker(ratatui_image::picker::Picker::halfblocks());
-        app.open_image_viewer(path);
+        app.open_file(&dir.path().join("t.md"));
+        app.show_image(0);
 
         let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
         terminal.draw(|f| crate::ui::draw(f, &mut app)).unwrap();
