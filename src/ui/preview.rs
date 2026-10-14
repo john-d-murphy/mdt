@@ -28,10 +28,17 @@ pub(crate) const PREVIEW_PADDING: Padding = Padding::new(2, 2, 1, 0);
 /// render time (they depend on terminal size, file tree visibility, and padding).
 /// Input handlers (scroll, search) depend on these values being current.
 pub fn draw_preview(frame: &mut Frame, app: &mut App, area: Rect) {
-    let block = Block::default().padding(PREVIEW_PADDING);
+    // Centring is extra left padding: everything downstream — the viewport width, the
+    // images, the hit-testing — works off the block's inner area, so it follows along.
+    let pane = area.width.saturating_sub(PREVIEW_PADDING.left + PREVIEW_PADDING.right);
+    let block = Block::default().padding(Padding {
+        left: PREVIEW_PADDING.left + app.center_offset(pane as usize),
+        ..PREVIEW_PADDING
+    });
 
     // Inner area height (excluding borders) is the viewport.
     let inner = block.inner(area);
+    app.preview_text_area = Some(inner);
     // Side effect: viewport_height must be updated every frame because the terminal
     // can resize at any time. Scroll clamping in input handling depends on this value.
     app.document.viewport_height = inner.height as usize;
@@ -156,8 +163,14 @@ pub fn draw_preview(frame: &mut Frame, app: &mut App, area: Rect) {
 /// (editor buffer content) instead of `app.document.rendered_lines` (on-disk content).
 /// Scroll position tracks the editor cursor.
 pub fn draw_live_preview(frame: &mut Frame, app: &mut App, area: Rect) {
-    let block =
-        Block::default().title(" Preview ").borders(Borders::ALL).padding(Padding::new(1, 1, 0, 0));
+    // Borders take a column each side, then the padding, then the centring offset.
+    let pane = area.width.saturating_sub(4);
+    let block = Block::default().title(" Preview ").borders(Borders::ALL).padding(Padding::new(
+        1 + app.center_offset(pane as usize),
+        1,
+        0,
+        0,
+    ));
 
     let inner = block.inner(area);
 
@@ -325,6 +338,37 @@ mod tests {
 
     use crate::app::App;
     use crate::test_util::TempTestDir;
+
+    /// The column the text starts in on `row`, after drawing the whole UI.
+    fn text_starts_at(app: &mut App, row: u16) -> u16 {
+        let mut terminal = Terminal::new(TestBackend::new(80, 10)).unwrap();
+        terminal.draw(|f| crate::ui::draw(f, app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        (0..80).find(|&x| buf[(x, row)].symbol() != " ").unwrap_or(80)
+    }
+
+    #[test]
+    fn centring_moves_the_text_in_and_only_with_a_width_limit() {
+        let dir = TempTestDir::new("mdt-test-preview-centring");
+        dir.create_file("t.md", "hello\n");
+        let mut app = App::new(dir.path(), Color::Reset).unwrap();
+        app.open_file(&dir.path().join("t.md"));
+
+        let left = text_starts_at(&mut app, 1);
+        assert_eq!(left, 2, "by default the text sits at the left padding");
+
+        app.center = true;
+        assert_eq!(text_starts_at(&mut app, 1), left, "centring alone changes nothing");
+
+        app.max_width = Some(20);
+        let centred = text_starts_at(&mut app, 1);
+        assert!(centred > left, "with a limit it moves in: {left} -> {centred}");
+        // 80 wide, 4 of padding, wrapped to 20: 56 spare, 28 of it on the left.
+        assert_eq!(centred, 2 + 28);
+
+        app.center = false;
+        assert_eq!(text_starts_at(&mut app, 1), left, "and back to the left when told");
+    }
 
     #[test]
     fn highlight_span_no_match_returns_original() {

@@ -33,6 +33,31 @@ impl App {
     }
 
     /// Execute a command-mode command.
+    /// `:width` — report the wrap width; `:width <n>` set it; `:width 0` (or `off`, `none`)
+    /// take the limit off. The next frame re-wraps, since that is where the pane's width is
+    /// known.
+    fn set_width(&mut self, arg: &str) {
+        match arg {
+            "" => {
+                self.status_message = match self.max_width {
+                    Some(n) => format!("Width: {n} columns"),
+                    None => "Width: the pane's own".to_string(),
+                };
+            }
+            "0" | "off" | "none" => {
+                self.max_width = None;
+                self.status_message = "Width: the pane's own".to_string();
+            }
+            n => match n.parse::<usize>() {
+                Ok(n) => {
+                    self.max_width = Some(n);
+                    self.status_message = format!("Width: {n} columns");
+                }
+                Err(_) => self.status_message = format!("Not a number of columns: {n}"),
+            },
+        }
+    }
+
     pub(crate) fn execute_command(&mut self, cmd: &str) {
         let in_editor = self.editor.textarea.is_some();
 
@@ -79,6 +104,17 @@ impl App {
                 }
             }
             "images" => self.toggle_images(),
+            "center" | "centre" => {
+                self.center = !self.center;
+                self.status_message = if self.center {
+                    "Text centred".to_string()
+                } else {
+                    "Text to the left".to_string()
+                };
+            }
+            _ if cmd == "width" || cmd.starts_with("width ") => {
+                self.set_width(cmd["width".len()..].trim());
+            }
             "preview" => {
                 self.toggle_live_preview();
             }
@@ -112,6 +148,59 @@ mod tests {
         assert_eq!(app.status_message, "Images OFF");
         app.execute_command("images");
         assert_eq!(app.status_message, "Images ON (half-blocks)");
+    }
+
+    #[test]
+    fn width_command_sets_reports_and_clears_the_limit() {
+        let dir = TempTestDir::new("mdt-test-cmd-width");
+        dir.create_file("test.md", "# Test");
+        let mut app = App::new(dir.path(), Color::Reset).unwrap();
+
+        app.execute_command("width");
+        assert_eq!(app.status_message, "Width: the pane's own");
+
+        app.execute_command("width 100");
+        assert_eq!(app.max_width, Some(100));
+        assert_eq!(app.status_message, "Width: 100 columns");
+
+        app.execute_command("width");
+        assert_eq!(app.status_message, "Width: 100 columns", "and it reports what is set");
+
+        app.execute_command("width 0");
+        assert_eq!(app.max_width, None);
+        assert_eq!(app.status_message, "Width: the pane's own");
+
+        app.execute_command("width 72");
+        app.execute_command("width off");
+        assert_eq!(app.max_width, None, "`off` and `none` also take the limit away");
+    }
+
+    #[test]
+    fn width_command_rejects_what_is_not_a_number() {
+        let dir = TempTestDir::new("mdt-test-cmd-width-bad");
+        dir.create_file("test.md", "# Test");
+        let mut app = App::new(dir.path(), Color::Reset).unwrap();
+        app.max_width = Some(80);
+
+        app.execute_command("width wide");
+        assert_eq!(app.status_message, "Not a number of columns: wide");
+        assert_eq!(app.max_width, Some(80), "and leaves the limit alone");
+    }
+
+    #[test]
+    fn center_command_toggles_both_spellings() {
+        let dir = TempTestDir::new("mdt-test-cmd-center");
+        dir.create_file("test.md", "# Test");
+        let mut app = App::new(dir.path(), Color::Reset).unwrap();
+        assert!(!app.center);
+
+        app.execute_command("center");
+        assert!(app.center);
+        assert_eq!(app.status_message, "Text centred");
+
+        app.execute_command("centre");
+        assert!(!app.center);
+        assert_eq!(app.status_message, "Text to the left");
     }
 
     #[test]

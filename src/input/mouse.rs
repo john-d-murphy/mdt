@@ -2,7 +2,6 @@ use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Position;
 
 use crate::app::{App, Focus, Overlay};
-use crate::ui::preview::PREVIEW_PADDING;
 
 impl App {
     pub(crate) fn handle_mouse(&mut self, mouse: MouseEvent) {
@@ -63,9 +62,8 @@ impl App {
     /// Act on a left click in the preview pane: an image opens in the viewer, a link opens
     /// with the system handler, anything else just moves the focus (already done).
     fn click_preview(&mut self, col: u16, row: u16) {
-        let Some(area) = self.preview_area else { return };
-        let x0 = area.x + PREVIEW_PADDING.left;
-        let y0 = area.y + PREVIEW_PADDING.top;
+        let Some(text) = self.preview_text_area else { return };
+        let (x0, y0) = (text.x, text.y);
         if col < x0 || row < y0 {
             return;
         }
@@ -112,7 +110,11 @@ mod tests {
         app.document.viewport_height = 10;
         // Set up areas: file list on left, preview on right
         app.file_list_area = Some(Rect::new(0, 0, 30, 24));
-        app.preview_area = Some(Rect::new(30, 0, 50, 24));
+        let pane = Rect::new(30, 0, 50, 24);
+        app.preview_area = Some(pane);
+        // What `draw_preview` records: the pane less its padding (2, 2, 1, 0).
+        app.preview_text_area =
+            Some(Rect::new(pane.x + 2, pane.y + 1, pane.width - 4, pane.height - 1));
         (dir, app)
     }
 
@@ -125,7 +127,11 @@ mod tests {
         let mut app = App::new(dir.path(), Color::Reset).unwrap();
         app.open_file(&dir.path().join("test.md"));
         app.document.viewport_height = 10;
-        app.preview_area = Some(Rect::new(30, 0, 50, 24));
+        let pane = Rect::new(30, 0, 50, 24);
+        app.preview_area = Some(pane);
+        // What `draw_preview` records: the pane less its padding (2, 2, 1, 0).
+        app.preview_text_area =
+            Some(Rect::new(pane.x + 2, pane.y + 1, pane.width - 4, pane.height - 1));
 
         let line = &app.document.rendered_lines[0];
         let flat: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
@@ -185,6 +191,29 @@ mod tests {
         app.document.scroll_offset = link_line; // link now on the first visible row
         app.handle_mouse(mouse_event(MouseEventKind::Down(MouseButton::Left), 32 + 1, 1));
         assert_eq!(app.status_message, "Opening: https://example.com/last");
+    }
+
+    #[test]
+    fn a_click_lands_on_a_link_when_the_text_is_centred() {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+
+        let dir = TempTestDir::new("mdt-test-mouse-click-centred");
+        dir.create_file("test.md", "[the docs](https://example.com/docs)\n");
+        let mut app = App::new(dir.path(), Color::Reset).unwrap();
+        app.open_file(&dir.path().join("test.md"));
+        app.focus = Focus::Preview;
+        app.max_width = Some(20);
+        app.center = true;
+
+        // Draw for real, so the centring offset is whatever the pane works out.
+        let mut terminal = Terminal::new(TestBackend::new(80, 10)).unwrap();
+        terminal.draw(|f| crate::ui::draw(f, &mut app)).unwrap();
+        let text = app.preview_text_area.expect("the text area was recorded");
+        assert!(text.x > 2, "the text is pushed in from the left: {text:?}");
+
+        app.handle_mouse(mouse_event(MouseEventKind::Down(MouseButton::Left), text.x + 2, text.y));
+        assert_eq!(app.status_message, "Opening: https://example.com/docs");
     }
 
     #[test]
