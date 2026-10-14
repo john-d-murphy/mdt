@@ -37,7 +37,7 @@ Point `mdt` at a directory and you get a file tree, a fully rendered markdown pr
 - Autolinks
 - Scrollbar that appears when content exceeds the viewport
 - Heading jump navigation (`[` / `]`)
-- Inline images: `![alt](path)` is drawn with the terminal's graphics (kitty, sixel, iTerm2) or as unicode half-blocks elsewhere; `Ctrl+g` / `:images` turns them off, `--no-images` never asks; press `I` or click an image to open it large in a zoomable viewer, `n` / `N` to step through the document's images
+- Inline images: PNG, JPEG, GIF, WebP, BMP and SVG, drawn with the terminal's graphics (kitty, sixel, iTerm2) or as unicode half-blocks elsewhere; `Ctrl+g` / `:images` turns them off, `--no-images` never asks; press `I` or click an image to open it large in a zoomable viewer, `n` / `N` to step through the document's images
 - [quine](https://github.com/indeterminacy/homunculus) link lines (`—links-to→ Name [id kind]` items under `## Links out` / `## Links in`) painted like quine's triage: relationship bold yellow, name bold, id cyan, `[dangling]` red, what was said on the edge hung in italic
 
 **Editor**

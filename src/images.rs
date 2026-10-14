@@ -10,7 +10,7 @@
 //! nothing lingers when the page scrolls.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 
 use ratatui::layout::{Rect, Size};
@@ -162,6 +162,15 @@ pub(crate) struct PaneView<'a> {
     pub(crate) inner: Rect,
 }
 
+/// Read a picture from `path`: an SVG rasterised, anything else decoded as it is.
+fn read_picture(path: &Path) -> Option<image::DynamicImage> {
+    if crate::svg::is_svg(path) {
+        crate::svg::render(path)
+    } else {
+        image::open(path).ok()
+    }
+}
+
 /// Scale `image` down to fill a `size` box of `cell_px` cells, keeping its proportions.
 ///
 /// A triangle filter rather than the nearest-neighbour the crate would use: this runs once
@@ -306,7 +315,7 @@ impl ImageState {
         let cell_px = layout.cell_px;
         std::thread::spawn(move || {
             for (path, box_size) in jobs {
-                let read = image::open(&path).ok().map(|image| {
+                let read = read_picture(&path).map(|image| {
                     let scaled = box_size.map(|size| (size, scale_to(&image, size, cell_px)));
                     Read { image, scaled }
                 });
@@ -339,11 +348,11 @@ impl ImageState {
             return;
         }
 
-        let entry = cache.entry(path.clone()).or_insert_with(|| {
-            image::open(path).ok().map(|image| Read { image, scaled: None }.into())
-        });
+        let entry = cache
+            .entry(path.clone())
+            .or_insert_with(|| read_picture(path).map(|image| Read { image, scaled: None }.into()));
         let Some(cached) = entry else {
-            let note = format!("[image: could not decode {}]", path.display());
+            let note = format!("[image: could not read {}]", path.display());
             let style = Style::new().fg(palette::FG_MUTED).add_modifier(Modifier::ITALIC);
             frame.render_widget(Paragraph::new(Span::styled(note, style)), area);
             return;

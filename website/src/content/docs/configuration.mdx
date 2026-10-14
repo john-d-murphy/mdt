@@ -85,7 +85,7 @@ export MDT_NO_IMAGES=1
 
 ### Inline images
 
-`![alt](path)` is drawn in the preview. At startup mdt asks the terminal what it can do and picks kitty's graphics protocol, sixels or iTerm2's, falling back to unicode half-blocks anywhere else (including through `tmux` without passthrough). Images are sized to the pane, never upscaled, and take at most 24 rows; one scrolled partly off the top or bottom shows the part that is on screen. Only local files are drawn — a remote URL shows as `[image: alt] (url)` and a missing file as `[image: alt] (not found)`.
+`![alt](path)` is drawn in the preview: PNG, JPEG, GIF, WebP and BMP files, and SVG, which is rasterised at the size it is shown. At startup mdt asks the terminal what it can do and picks kitty's graphics protocol, sixels or iTerm2's, falling back to unicode half-blocks anywhere else (including through `tmux` without passthrough). Images are sized to the pane, never upscaled, and take at most 24 rows; one scrolled partly off the top or bottom shows the part that is on screen. Only local files are drawn — a remote URL shows as `[image: alt] (url)` and a missing file as `[image: alt] (not found)`.
 
 Inline images are sized to be read alongside the text, so a big one is shown small. Press `I`, or click it, to open the viewer: the picture fills the screen, `+` and `-` (or the mouse wheel) zoom from the whole picture up to 8x, `h` `j` `k` `l` pan once you are in past the edges, `0` returns to the whole picture, `n` and `N` step through the document's images, and `esc` closes it.
 

@@ -7,6 +7,7 @@ mod input;
 mod integration_tests;
 mod markdown;
 mod palette;
+mod svg;
 #[cfg(test)]
 mod test_util;
 mod ui;
