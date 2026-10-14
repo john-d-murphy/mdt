@@ -138,12 +138,12 @@ No configuration is needed; mouse support is enabled automatically.
 
 ### Taking notes
 
-Drag over the text to select some of it, then right-click to open a box and say what you think. The comment wraps and takes as many lines as it needs, and Enter starts another line, so a note can be a few sentences rather than one.
+Drag over the text to select some of it, then right-click to open a box. A note can be the passage you selected, something you typed, or both — so with a selection in hand, `Ctrl+d` on an empty box notes the passage alone. The comment wraps and takes as many lines as it needs, and Enter starts another line, so a note can be a few sentences rather than one.
 
 | Key | Action |
 | --- | ------ |
 | `Ctrl+d` | Make the note |
-| `Ctrl+e` | Hand the terminal to the note command so that it can open an editor. mdt leaves the alternate screen while the command has the terminal and takes it back afterwards. Needs a first line to start from |
+| `Ctrl+e` | Hand the terminal to the note command so that it can open an editor. mdt leaves the alternate screen while the command has the terminal and takes it back afterwards |
 | `esc` | Abandon it |
 
 mdt runs `--note-command` through your shell and puts whatever it prints in the status bar — so a command that echoes the new note's name will say so, and one that fails says why.
@@ -169,7 +169,7 @@ mdt knows nothing about where notes go. The command is given what mdt does know,
 
 The last backticked word there is the page's id. It is read from the page rather than the file, so it works for a page piped in from `quine read`, which has no file of its own. A page without that line leaves it empty, and the note has nothing to attach to.
 
-The repository's `examples/quine-note.sh` is a working command for quine: it makes a note of the comment with the selection quoted beneath it, then links the note back to the page with `informed-by`. With `MDT_NOTE_EDIT` set it runs `quine new -e`, so `Ctrl+e` opens the real note file in your editor — front matter and all, the same thing `n -e` gives — rather than a scratch file mdt would have to interpret.
+The repository's `examples/quine-note.sh` is a working command for quine: the selected passage opens the note and the comment follows it, since `quine new` takes a note's title from the start of its body, so a note made of a passage is titled by it; then the note is linked back to the page with `informed-by`, with the comment as the edge's prose. With `MDT_NOTE_EDIT` set it runs `quine new -e`, so `Ctrl+e` opens the real note file in your editor — front matter and all, the same thing `n -e` gives — rather than a scratch file mdt would have to interpret.
 
 ### Background color detection
 

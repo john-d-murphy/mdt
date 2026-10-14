@@ -125,11 +125,11 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_e_with_nothing_written_says_to_write_something() {
+    fn ctrl_e_with_nothing_to_note_says_so_and_stays_in_the_box() {
         let (_dir, mut app) = app_noting("mdt-test-note-keys-ctrl-e-empty");
         ctrl(&mut app, 'e');
         assert!(!app.note_in_editor);
         assert!(matches!(app.overlay, Overlay::NoteInput), "still in the box");
-        assert_eq!(app.status_message, "Write a first line, then ctrl+e opens it");
+        assert_eq!(app.status_message, "Nothing written and nothing selected, so no note");
     }
 }

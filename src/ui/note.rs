@@ -62,9 +62,14 @@ fn comment(app: &App) -> Vec<Line<'static>> {
     let cursor =
         if app.cursor.visible { Span::styled(" ", theme::MODAL_CURSOR) } else { Span::raw(" ") };
     if app.note_input.is_empty() {
+        let prompt = if app.document.selected_text(&app.selection).is_some() {
+            "what you want to say, or nothing — the passage below is the note"
+        } else {
+            "what you want to say about it"
+        };
         return vec![Line::from(vec![
             cursor,
-            Span::styled("what you want to say about it", theme::MODAL_SEARCH_PLACEHOLDER),
+            Span::styled(prompt, theme::MODAL_SEARCH_PLACEHOLDER),
         ])];
     }
     let mut lines: Vec<Line<'static>> = app

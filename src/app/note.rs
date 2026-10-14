@@ -72,8 +72,8 @@ impl App {
     /// so the command can open an editor on the note it makes — `quine new -e` does, which
     /// means the file being edited is the real note, front matter and all.
     pub(crate) fn request_note_editor(&mut self) {
-        if self.note_input.trim().is_empty() {
-            self.status_message = "Write a first line, then ctrl+e opens it".to_string();
+        if self.nothing_to_note() {
+            self.status_message = "Nothing written and nothing selected, so no note".to_string();
             return;
         }
         if self.note_command.is_none() {
@@ -96,9 +96,16 @@ impl App {
         };
     }
 
+    /// Whether there is anything for a note to be made of. A selection is enough on its
+    /// own — sometimes the note is the passage and nothing else.
+    pub(crate) fn nothing_to_note(&self) -> bool {
+        self.note_input.trim().is_empty() && self.document.selected_text(&self.selection).is_none()
+    }
+
     /// The note command, loaded with everything mdt knows, and the box emptied. `None` —
     /// having said why — when there is nothing to make a note with.
     fn take_note(&mut self, in_editor: bool) -> Option<Note> {
+        let nothing = self.nothing_to_note();
         let comment = std::mem::take(&mut self.note_input);
         self.overlay = Overlay::None;
 
@@ -106,8 +113,8 @@ impl App {
             self.status_message = "No note command: start mdt with --note-command".to_string();
             return None;
         };
-        if comment.trim().is_empty() {
-            self.status_message = "Nothing written, so no note".to_string();
+        if nothing {
+            self.status_message = "Nothing written and nothing selected, so no note".to_string();
             return None;
         }
 
@@ -257,12 +264,51 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_comment_makes_no_note() {
+    fn a_selection_on_its_own_is_enough_for_a_note() {
+        let (_dir, mut app) =
+            app_with(PAGE, Some("echo \"[$MDT_NOTE_SELECTION][$MDT_NOTE_COMMENT]\""));
+        let line = app
+            .document
+            .rendered_lines
+            .iter()
+            .position(|l| l.spans.iter().any(|s| s.content.contains("resonance")))
+            .expect("the body is rendered");
+        app.selection.press(line, 15);
+        app.selection.drag(line, 23);
+
+        app.start_note(line);
+        assert!(matches!(app.overlay, Overlay::NoteInput));
+        assert!(!app.nothing_to_note(), "the selection is something to note");
+        app.submit_note();
+        assert_eq!(app.status_message, "[resonance][]");
+    }
+
+    #[test]
+    fn nothing_written_and_nothing_selected_makes_no_note() {
         let (_dir, mut app) = app_with(PAGE, Some("echo made"));
         app.start_note(3);
         app.note_input = "   ".to_string();
         app.submit_note();
-        assert_eq!(app.status_message, "Nothing written, so no note");
+        assert_eq!(app.status_message, "Nothing written and nothing selected, so no note");
+    }
+
+    #[test]
+    fn the_editor_run_takes_a_selection_on_its_own_too() {
+        let (_dir, mut app) = app_with(PAGE, Some("test -n \"$MDT_NOTE_SELECTION\""));
+        let line = app
+            .document
+            .rendered_lines
+            .iter()
+            .position(|l| l.spans.iter().any(|s| s.content.contains("resonance")))
+            .expect("the body is rendered");
+        app.selection.press(line, 15);
+        app.selection.drag(line, 23);
+
+        app.start_note(line);
+        app.request_note_editor();
+        assert!(app.note_in_editor, "no comment needed when a passage is selected");
+        app.run_note_in_editor();
+        assert_eq!(app.status_message, "Note made");
     }
 
     #[test]

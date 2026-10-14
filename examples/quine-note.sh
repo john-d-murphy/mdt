@@ -23,12 +23,17 @@
 # Whatever this prints lands in mdt's status bar.
 set -eu
 
-# The comment is the body; anything selected goes under it as a quotation.
-body=$MDT_NOTE_COMMENT
-if [ -n "${MDT_NOTE_SELECTION:-}" ]; then
-    body="$MDT_NOTE_COMMENT
+# A note is the selected passage, what was typed, or both. The passage goes first, because
+# `quine new` takes the title from the beginning of the body — so a note made of a passage
+# is titled by it. It is not quoted with `>` for the same reason: that would be the title.
+if [ -n "${MDT_NOTE_SELECTION:-}" ] && [ -n "${MDT_NOTE_COMMENT:-}" ]; then
+    body="$MDT_NOTE_SELECTION
 
-$(printf '%s\n' "$MDT_NOTE_SELECTION" | sed 's/^/> /')"
+$MDT_NOTE_COMMENT"
+elif [ -n "${MDT_NOTE_SELECTION:-}" ]; then
+    body=$MDT_NOTE_SELECTION
+else
+    body=$MDT_NOTE_COMMENT
 fi
 
 # `quine new` reads the body on stdin and prints the new note's path. With the terminal in
@@ -49,5 +54,9 @@ fi
 
 # The note is informed by what was being read. Change the relationship here if another one
 # fits better; `quine about --relationships` lists the ones that are defined.
-quine edge add -r informed-by "$note" "$MDT_NOTE_REF" -m "$MDT_NOTE_COMMENT" >/dev/null
+#
+# `-m` always has something in it: with no -m and a keyboard in reach, `quine edge add` opens
+# an editor for the why, which is not wanted here.
+why=${MDT_NOTE_COMMENT:-noted while reading}
+quine edge add -r informed-by "$note" "$MDT_NOTE_REF" -m "$why" >/dev/null
 echo "Note made, informed-by $MDT_NOTE_REF: $(basename "$note")"

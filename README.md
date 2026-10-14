@@ -197,13 +197,15 @@ When `mdt` starts, you'll see the welcome screen. Press `Ctrl+e` to open the fil
 
 ## Taking notes about what you are reading
 
-Drag over the text to select some of it, then right-click to open a box and say what you
-think. The comment wraps and takes as many lines as it needs; Enter starts another line.
+Drag over the text to select some of it, then right-click to open a box. A note can be the
+passage you selected, something you typed, or both — so with a selection in hand, `Ctrl+d`
+on an empty box notes the passage alone. The comment wraps and takes as many lines as it
+needs; Enter starts another line.
 
 | Key | Action |
 |---|---|
 | `Ctrl+d` | make the note |
-| `Ctrl+e` | hand the terminal to the note command so it can open an editor — with `examples/quine-note.sh` that is `quine new -e`, which opens the note itself, front matter and all, exactly as `n -e` does. Needs a first line to start from |
+| `Ctrl+e` | hand the terminal to the note command so it can open an editor — with `examples/quine-note.sh` that is `quine new -e`, which opens the note itself, front matter and all, exactly as `n -e` does |
 | `esc` | abandon it |
 
 mdt runs the command given by `--note-command` (or `MDT_NOTE_COMMAND`) and puts whatever it
@@ -225,8 +227,9 @@ page carries under its title — `` `essay` · 2025-09-21 · `room0` `` — so i
 piped in from `quine read`, which has no file of its own. A page without that line leaves it
 empty, and the note has nothing to attach to.
 
-`examples/quine-note.sh` is a working command for quine: it makes a note of the comment with
-the selection quoted beneath it, then links the note back to the page with `informed-by`. With
+`examples/quine-note.sh` is a working command for quine: the selected passage opens the note
+and the comment follows it, since `quine new` takes a note's title from the start of its body;
+then the note is linked back to the page with `informed-by`. With
 `MDT_NOTE_EDIT` set it runs `quine new -e`, so `Ctrl+e` opens the real note file in your
 editor rather than a scratch file mdt would have to interpret.
 
