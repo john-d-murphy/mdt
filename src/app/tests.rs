@@ -365,6 +365,27 @@ fn ctrl_p_in_insert_mode_does_not_toggle_preview() {
     assert!(!app.live_preview.enabled);
 }
 
+// ── Width and centring ──────────────────────────────────────────
+
+#[test]
+fn center_offset_is_half_the_spare_width_and_only_when_asked() {
+    let dir = TempTestDir::new("mdt-test-center-offset");
+    dir.create_file("t.md", "# T");
+    let mut app = App::new(dir.path(), Color::Reset).unwrap();
+
+    app.max_width = Some(100);
+    assert_eq!(app.center_offset(200), 0, "off by default, however wide the pane");
+
+    app.center = true;
+    assert_eq!(app.center_offset(200), 50, "half of the hundred columns to spare");
+    assert_eq!(app.center_offset(100), 0, "nothing spare at exactly the limit");
+    assert_eq!(app.center_offset(60), 0, "nor in a pane narrower than the limit");
+    assert_eq!(app.center_offset(201), 50, "odd leftovers round down");
+
+    app.max_width = None;
+    assert_eq!(app.center_offset(200), 0, "with no limit there is nothing to centre in");
+}
+
 // ── Stdin mode ──────────────────────────────────────────────────
 
 #[test]

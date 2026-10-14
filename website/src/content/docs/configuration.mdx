@@ -8,7 +8,7 @@ mdt is configured through command-line flags and environment variables. There is
 ## Usage
 
 ```bash
-mdt [path] [--max-file-size <bytes>] [--max-width <columns>] [--no-images]
+mdt [path] [--max-file-size <bytes>] [--max-width <columns>] [--center] [--no-images]
 ```
 
 If no path is given, mdt opens the current directory. You can pass a directory to browse or a specific file to open directly. When given a file, mdt opens it immediately, roots the file tree at the file's directory, and selects the file in the tree.
@@ -38,6 +38,7 @@ In stdin mode, mdt operates in read-only preview mode. The file tree, file finde
 | `--max-file-size <bytes>` | Maximum file size in bytes that mdt will open | 5,242,880 (5 MB) |
 | `--max-width <columns>`   | Maximum width in columns for rendered markdown | none (terminal width) |
 | `--no-images`             | Never draw images; `![alt](src)` shows as `[image: alt]` | images on |
+| `--center`                | Centre the text in the pane, where `--max-width` leaves room | text to the left |
 
 For example, to allow opening files up to 10 MB:
 
@@ -52,6 +53,18 @@ mdt --max-width 100
 ```
 
 When the terminal (or preview pane) is narrower than the limit, mdt wraps to the actual available width. The limit applies to both the file preview and the live preview pane.
+
+`:width <columns>` sets the same limit while mdt is running, `:width 0` (or `off`) takes it off again, and `:width` on its own says what is in force.
+
+## Centring
+
+By default the text sits against the left of the pane, as a pager does, so a width limit on a wide terminal leaves the right-hand side empty. `--center` puts the text in the middle of the pane instead:
+
+```bash
+mdt --max-width 100 --center
+```
+
+`:center` turns it on and off while running. It only shows when a width limit leaves something to centre in: without `--max-width` the text already fills the pane. The scrollbar stays at the pane's edge, and clicking a link or an image still lands where you see it.
 
 ## Environment variables
 
@@ -72,6 +85,14 @@ NO_COLOR=1 mdt
 ```
 
 This is useful for terminals that do not support colors or when piping output.
+
+### `MDT_CENTER`
+
+Set to `1` to start with the text centred, as if `--center` were given.
+
+```bash
+export MDT_CENTER=1
+```
 
 ### `MDT_NO_IMAGES`
 

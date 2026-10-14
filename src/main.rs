@@ -51,6 +51,10 @@ struct Cli {
     /// Don't draw images; `![alt](src)` shows as text (also `MDT_NO_IMAGES=1`)
     #[arg(long, env = "MDT_NO_IMAGES")]
     no_images: bool,
+
+    /// Centre the text in the pane, where --max-width leaves room (also `MDT_CENTER=1`)
+    #[arg(long, env = "MDT_CENTER")]
+    center: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -109,11 +113,13 @@ fn main() -> anyhow::Result<()> {
         let mut app = App::from_stdin(content, bg_color);
         app.max_file_size = cli.max_file_size;
         app.max_width = cli.max_width.map(usize::from);
+        app.center = cli.center;
         (app, None, None, None, None)
     } else {
         let mut app = App::new(&path, bg_color)?;
         app.max_file_size = cli.max_file_size;
         app.max_width = cli.max_width.map(usize::from);
+        app.center = cli.center;
 
         // Acquire an advisory lock to prevent concurrent mdt instances on the same directory.
         // The lock lives in the per-user runtime directory, never inside the tree being

@@ -24,6 +24,8 @@ pub(crate) const HELP_KEYS: &[(&str, &str)] = &[
     ("[/]", "Previous/Next heading"),
     (":w", "Save"),
     (":q", "Quit"),
+    (":width n", "Wrap width"),
+    (":center", "Centre the text"),
     ("Ctrl+g", "Toggle images (:images)"),
     ("I", "View images (n/N)"),
     ("click image", "Zoom it (+/-, 0)"),

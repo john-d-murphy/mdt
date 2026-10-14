@@ -96,7 +96,7 @@ The binary will be at `target/release/mdt`.
 ## Usage
 
 ```
-mdt [path] [--max-file-size <bytes>] [--max-width <columns>]
+mdt [path] [--max-file-size <bytes>] [--max-width <columns>] [--center] [--no-images]
 ```
 
 Opens the given directory, or opens the given file with the file tree rooted at its directory. Defaults to the current directory if no path is provided.
@@ -106,6 +106,7 @@ Opens the given directory, or opens the given file with the file tree rooted at 
 | `--max-file-size <bytes>` | Maximum file size to open (default: 5 MB) |
 | `--max-width <columns>` | Maximum render width in columns; also `MDT_MAX_WIDTH` env var (default: terminal width) |
 | `--no-images` | Don't draw images, show `[image: alt]` instead; also `MDT_NO_IMAGES=1` |
+| `--center` | Centre the text in the pane, where `--max-width` leaves room; also `MDT_CENTER=1` |
 
 When `mdt` starts, you'll see the welcome screen. Press `Ctrl+e` to open the file tree, navigate to a markdown file, and press `Enter` to preview it.
 
@@ -167,6 +168,8 @@ When `mdt` starts, you'll see the welcome screen. Press `Ctrl+e` to open the fil
 | `Ctrl+s` | Swap split orientation (horizontal / vertical) |
 | `:preview` | Toggle live preview (command mode) |
 | `Ctrl+g` / `:images` | Toggle inline images |
+| `:width <n>` | Set the wrap width in columns (`:width 0` for the pane's own) |
+| `:center` | Centre the text in the pane, or set it back to the left |
 | `I` / click an image | Open the image viewer (`+`/`-` zoom, `hjkl` pan, `0` whole, `n`/`N` next/previous, `esc` close) |
 
 ### Search

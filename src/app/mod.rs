@@ -56,7 +56,13 @@ pub struct App {
     pub(crate) max_file_size: u64,
     /// Maximum render width in columns (`--max-width` / `MDT_MAX_WIDTH`); `None` = no limit.
     pub(crate) max_width: Option<usize>,
+    /// Centre the text in the pane rather than setting it to the left (`--center`,
+    /// `MDT_CENTER`, `:center`). Only shows when a width limit leaves room to centre in.
+    pub(crate) center: bool,
     pub(crate) preview_area: Option<ratatui::layout::Rect>,
+    /// Where the preview's text is drawn, as last drawn: the pane minus its padding, and
+    /// minus the centring offset. Mouse hit-testing maps a clicked cell back through it.
+    pub(crate) preview_text_area: Option<ratatui::layout::Rect>,
     pub(crate) file_list_area: Option<ratatui::layout::Rect>,
     pub(crate) live_preview: LivePreviewState,
     pub(crate) stdin_mode: bool,
@@ -76,6 +82,17 @@ impl App {
     /// column count even on wide terminals, similar to `less`'s max width.
     pub(crate) fn render_width(&self, available: usize) -> usize {
         self.max_width.map_or(available, |max| available.min(max))
+    }
+
+    /// Columns to leave on the left so that text wrapped to [`Self::render_width`] sits in
+    /// the middle of an `available`-wide pane. Zero unless centring is on and a width limit
+    /// leaves something to centre in.
+    pub(crate) fn center_offset(&self, available: usize) -> u16 {
+        if !self.center {
+            return 0;
+        }
+        let spare = available.saturating_sub(self.render_width(available)) / 2;
+        u16::try_from(spare).unwrap_or(u16::MAX)
     }
 
     /// Create a new `App` rooted at `path`.
@@ -153,7 +170,9 @@ impl App {
             root_path,
             max_file_size: Self::DEFAULT_MAX_FILE_SIZE,
             max_width: None,
+            center: false,
             preview_area: None,
+            preview_text_area: None,
             file_list_area: None,
             live_preview: LivePreviewState::default(),
             stdin_mode: false,
@@ -220,7 +239,9 @@ impl App {
             root_path: PathBuf::new(),
             max_file_size: Self::DEFAULT_MAX_FILE_SIZE,
             max_width: None,
+            center: false,
             preview_area: None,
+            preview_text_area: None,
             file_list_area: None,
             live_preview: LivePreviewState::default(),
             stdin_mode: true,
