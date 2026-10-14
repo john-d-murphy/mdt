@@ -146,7 +146,7 @@ Drag over the text to select some of it, then right-click to open a box. A note 
 | `Ctrl+e` | Hand the terminal to the note command so that it can open an editor. mdt leaves the alternate screen while the command has the terminal and takes it back afterwards |
 | `esc` | Abandon it |
 
-mdt runs `--note-command` through your shell and puts whatever it prints in the status bar — so a command that echoes the new note's name will say so, and one that fails says why.
+mdt runs `--note-command` through your shell. A line the command writes to `$MDT_NOTE_RESULT` goes in the status bar — so a command that reports the new note's name will say so, and one that fails says why. Printing the line works too, but only for `Ctrl+d`: with the terminal handed over, anything printed is about to be drawn over by mdt taking the screen back.
 
 mdt knows nothing about where notes go. The command is given what mdt does know, in its environment:
 
@@ -158,6 +158,7 @@ mdt knows nothing about where notes go. The command is given what mdt does know,
 | `MDT_NOTE_FILE` | The file being read; empty when it came down a pipe |
 | `MDT_NOTE_LINE` | The line that was right-clicked |
 | `MDT_NOTE_EDIT` | `1` when mdt has handed over the terminal (`Ctrl+e`), so the command may open an editor; unset otherwise |
+| `MDT_NOTE_RESULT` | A file to write one line into, for the status bar |
 
 `MDT_NOTE_REF` comes from the metadata line a [quine](https://github.com/indeterminacy/homunculus) page carries under its title:
 
@@ -169,7 +170,7 @@ mdt knows nothing about where notes go. The command is given what mdt does know,
 
 The last backticked word there is the page's id. It is read from the page rather than the file, so it works for a page piped in from `quine read`, which has no file of its own. A page without that line leaves it empty, and the note has nothing to attach to.
 
-The repository's `examples/quine-note.sh` is a working command for quine: the selected passage opens the note and the comment follows it, since `quine new` takes a note's title from the start of its body, so a note made of a passage is titled by it; then the note is linked back to the page with `informed-by`, with the comment as the edge's prose. With `MDT_NOTE_EDIT` set it runs `quine new -e`, so `Ctrl+e` opens the real note file in your editor — front matter and all, the same thing `n -e` gives — rather than a scratch file mdt would have to interpret.
+The repository's `examples/quine-note.sh` is a working command for quine: the selected passage opens the note and the comment follows it, since `quine new` takes a note's title from the start of its body, so a note made of a passage is titled by it; then the note is linked back to the page with `informed-by`, with the comment as the edge's prose. With `MDT_NOTE_EDIT` set it opens the new note in `$VISUAL`/`$EDITOR` — the real file, front matter and all, the same thing `n -e` gives. It does that itself rather than through `quine new -e`, because the body is piped in and the note's path is read back from stdout, which would leave an editor with neither to work with; the editor is pointed at `/dev/tty` so that it has the terminal whatever the script's own stdio is.
 
 ### Background color detection
 

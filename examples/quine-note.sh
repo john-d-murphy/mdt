@@ -19,9 +19,21 @@
 #   MDT_NOTE_LINE       the line that was right-clicked
 #   MDT_NOTE_EDIT       set when mdt has handed over the terminal (ctrl+e), so an editor
 #                       can be opened; unset for a note made straight away (ctrl+d)
+#   MDT_NOTE_RESULT     a file to write one line into, for mdt's status bar
 #
-# Whatever this prints lands in mdt's status bar.
+# A line written to $MDT_NOTE_RESULT lands in mdt's status bar. Printing it works too, but
+# only when mdt kept the terminal: with the terminal handed over, anything printed is about
+# to be drawn over by mdt taking the screen back.
 set -eu
+
+# One line for mdt's status bar.
+say() {
+    if [ -n "${MDT_NOTE_RESULT:-}" ]; then
+        printf '%s\n' "$1" >"$MDT_NOTE_RESULT"
+    else
+        printf '%s\n' "$1"
+    fi
+}
 
 # A note is the selected passage, what was typed, or both. The passage goes first, because
 # `quine new` takes the title from the beginning of the body — so a note made of a passage
@@ -36,19 +48,23 @@ else
     body=$MDT_NOTE_COMMENT
 fi
 
-# `quine new` reads the body on stdin and prints the new note's path. With the terminal in
-# hand, `-e` opens $VISUAL/$EDITOR on the note itself — front matter and all, the same thing
-# `n -e` gives — and what is saved is the note.
+# `quine new` reads the body on stdin and prints the new note's path.
+note=$(printf '%s\n' "$body" | quine new --no-edit)
+
+# With the terminal in hand, open the note itself — front matter and all, the same thing
+# `n -e` gives. Not `quine new -e`: its stdin would be the pipe the body came down and its
+# stdout the capture above, which leaves an editor with no terminal to work on. The editor
+# is pointed at /dev/tty for the same reason, whatever this script's own stdio is. $VISUAL
+# may carry arguments (`code -w`), so the path goes in as a positional parameter.
 if [ -n "${MDT_NOTE_EDIT:-}" ]; then
-    note=$(printf '%s\n' "$body" | quine new -e)
-else
-    note=$(printf '%s\n' "$body" | quine new --no-edit)
+    editor=${VISUAL:-${EDITOR:-vi}}
+    sh -c "$editor \"\$1\"" sh "$note" </dev/tty >/dev/tty 2>&1
 fi
 
 # No id on the page — an ordinary markdown file, or something else piped in — so the note
 # stands on its own.
 if [ -z "${MDT_NOTE_REF:-}" ]; then
-    echo "Note made: $(basename "$note")"
+    say "Note made: $(basename "$note")"
     exit 0
 fi
 
@@ -59,4 +75,4 @@ fi
 # an editor for the why, which is not wanted here.
 why=${MDT_NOTE_COMMENT:-noted while reading}
 quine edge add -r informed-by "$note" "$MDT_NOTE_REF" -m "$why" >/dev/null
-echo "Note made, informed-by $MDT_NOTE_REF: $(basename "$note")"
+say "Note made, informed-by $MDT_NOTE_REF: $(basename "$note")"

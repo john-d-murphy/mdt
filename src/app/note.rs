@@ -56,12 +56,13 @@ impl App {
     pub(crate) fn submit_note(&mut self) {
         let Some(mut note) = self.take_note(false) else { return };
         let output = note.command.output();
+        let said = note.take_said();
         self.status_message = match output {
             Ok(done) if done.status.success() => {
-                first_line(&done.stdout).unwrap_or_else(|| "Note made".to_string())
+                said.or_else(|| first_line(&done.stdout)).unwrap_or_else(|| "Note made".to_string())
             }
-            Ok(done) => match first_line(&done.stderr) {
-                Some(said) => format!("Note failed: {said}"),
+            Ok(done) => match said.or_else(|| first_line(&done.stderr)) {
+                Some(why) => format!("Note failed: {why}"),
                 None => format!("Note command failed: {}", done.status),
             },
             Err(e) => format!("Could not run the note command: {e}"),
@@ -84,14 +85,19 @@ impl App {
         self.note_in_editor = true;
     }
 
-    /// Run the note command with the terminal already handed over: its own output goes to
-    /// the screen, which the event loop is about to take back, so only how it ended is
-    /// reported here.
+    /// Run the note command with the terminal already handed over. Its own output goes to
+    /// the screen the event loop is about to take back, so what it has to say comes through
+    /// the file named by `MDT_NOTE_RESULT` instead.
     pub(crate) fn run_note_in_editor(&mut self) {
         let Some(mut note) = self.take_note(true) else { return };
-        self.status_message = match note.command.status() {
-            Ok(status) if status.success() => "Note made".to_string(),
-            Ok(status) => format!("Note command failed: {status}"),
+        let ran = note.command.status();
+        let said = note.take_said();
+        self.status_message = match ran {
+            Ok(status) if status.success() => said.unwrap_or_else(|| "Note made".to_string()),
+            Ok(status) => match said {
+                Some(why) => format!("Note failed: {why}"),
+                None => format!("Note command failed: {status}"),
+            },
             Err(e) => format!("Could not run the note command: {e}"),
         };
     }
@@ -118,6 +124,16 @@ impl App {
             return None;
         }
 
+        // Where the command may leave a line for the status bar. It is the only way to
+        // hear from a command that has been given the terminal, since anything it prints
+        // there is about to be drawn over. One file per note, so nothing of one can be
+        // read as another's.
+        static NOTES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let nth = NOTES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let result =
+            std::env::temp_dir().join(format!("mdt-note-said-{}-{nth}", std::process::id()));
+        let _ = std::fs::remove_file(&result);
+
         let (shell, flag) = if cfg!(windows) { ("cmd", "/C") } else { ("sh", "-c") };
         let mut process = std::process::Command::new(shell);
         process
@@ -137,18 +153,32 @@ impl App {
                     .unwrap_or_default(),
             )
             .env("MDT_NOTE_REF", self.source_ref().unwrap_or_default())
-            .env("MDT_NOTE_LINE", (self.note_line + 1).to_string());
+            .env("MDT_NOTE_LINE", (self.note_line + 1).to_string())
+            .env("MDT_NOTE_RESULT", &result);
         if in_editor {
             // The command has the terminal: it may open an editor.
             process.env("MDT_NOTE_EDIT", "1");
         }
-        Some(Note { command: process })
+        Some(Note { command: process, result })
     }
 }
 
-/// A note command, ready to run.
+/// A note command, ready to run, and where it may leave a word about how it went.
 struct Note {
     command: std::process::Command,
+    result: std::path::PathBuf,
+}
+
+impl Note {
+    /// The line the command left for the status bar, if it left one. The file goes either
+    /// way, so nothing is carried over to the next note.
+    fn take_said(&self) -> Option<String> {
+        let written = std::fs::read_to_string(&self.result).ok();
+        let _ = std::fs::remove_file(&self.result);
+        let written = written?;
+        let line = written.lines().next()?.trim();
+        (!line.is_empty()).then(|| line.to_string())
+    }
 }
 
 /// The first line a command said, if it said anything.
@@ -253,6 +283,41 @@ mod tests {
         app.note_input = "x".to_string();
         app.submit_note();
         assert_eq!(app.status_message, "edit=[]");
+    }
+
+    #[test]
+    fn a_command_given_the_terminal_speaks_through_the_result_file() {
+        let (_dir, mut app) =
+            app_with(PAGE, Some("echo \"made $MDT_NOTE_COMMENT\" > \"$MDT_NOTE_RESULT\""));
+        app.note_input = "a thought".to_string();
+        app.run_note_in_editor();
+        assert_eq!(app.status_message, "made a thought");
+    }
+
+    #[test]
+    fn the_result_file_is_taken_away_after_each_note() {
+        let (_dir, mut app) = app_with(
+            PAGE,
+            Some("printf 'kept\\n' > \"$MDT_NOTE_RESULT\"; echo \"$MDT_NOTE_RESULT\""),
+        );
+        app.note_input = "x".to_string();
+        app.submit_note();
+        assert_eq!(app.status_message, "kept", "the file is preferred over what was printed");
+
+        // Second note, saying nothing: no leftover from the first.
+        app.note_command = Some("true".to_string());
+        app.note_input = "y".to_string();
+        app.submit_note();
+        assert_eq!(app.status_message, "Note made");
+    }
+
+    #[test]
+    fn a_failing_command_in_the_editor_says_what_it_wrote() {
+        let (_dir, mut app) =
+            app_with(PAGE, Some("echo 'no such relationship' > \"$MDT_NOTE_RESULT\"; exit 1"));
+        app.note_input = "x".to_string();
+        app.run_note_in_editor();
+        assert_eq!(app.status_message, "Note failed: no such relationship");
     }
 
     #[test]
