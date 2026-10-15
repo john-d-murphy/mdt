@@ -86,9 +86,34 @@ impl ScopeMatchers {
     }
 }
 
+/// SuperCollider's grammar, embedded: syntect's defaults have none (a fence tagged
+/// `supercollider`, `sc`, `scd` or `sclang`).
+const SUPERCOLLIDER: &str = include_str!("../../syntaxes/SuperCollider.sublime-syntax");
+
+/// The syntaxes: syntect's defaults, SuperCollider, and whatever `.sublime-syntax` files are
+/// in `$XDG_CONFIG_HOME/mdt/syntaxes` (default `~/.config/mdt/syntaxes`) — a grammar dropped
+/// there is highlighted on the next run, no rebuild.
+fn build_syntax_set() -> SyntaxSet {
+    use syntect::parsing::SyntaxDefinition;
+    let mut builder = SyntaxSet::load_defaults_newlines().into_builder();
+    if let Ok(def) = SyntaxDefinition::load_from_str(SUPERCOLLIDER, true, None) {
+        builder.add(def);
+    }
+    let config = std::env::var_os("XDG_CONFIG_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config")));
+    if let Some(dir) = config.map(|c| c.join("mdt").join("syntaxes")) {
+        if dir.is_dir() {
+            // A broken grammar in the folder is skipped with the rest kept: never a crash on open.
+            let _ = builder.add_from_folder(&dir, true);
+        }
+    }
+    builder.build()
+}
+
 pub(crate) fn syntax_set() -> &'static SyntaxSet {
     static SS: OnceLock<SyntaxSet> = OnceLock::new();
-    SS.get_or_init(SyntaxSet::load_defaults_newlines)
+    SS.get_or_init(build_syntax_set)
 }
 
 pub(crate) fn scope_matchers() -> &'static ScopeMatchers {
@@ -234,6 +259,30 @@ pub(super) fn highlight_code(code: &str, lang: &str) -> Vec<Vec<Span<'static>>> 
 mod tests {
     use super::*;
     use syntect::parsing::{Scope, ScopeStack};
+
+    #[test]
+    fn supercollider_is_a_syntax_and_its_symbols_strings_and_classes_are_scoped() {
+        use syntect::parsing::ParseState;
+        let ss = syntax_set();
+        for token in ["supercollider", "sc", "scd", "sclang"] {
+            assert!(ss.find_syntax_by_token(token).is_some(), "{token}");
+        }
+        let syntax = ss.find_syntax_by_token("supercollider").unwrap();
+        let mut state = ParseState::new(syntax);
+        let line = "SynthDef(\\sine, { |freq=440| Out.ar(0, SinOsc.ar(freq) * 0.1) }).add; // hi\n";
+        let ops = state.parse_line(line, ss).unwrap();
+        let mut stack = ScopeStack::new();
+        let mut seen = std::collections::HashSet::new();
+        for (_, op) in ScopeRegionIterator::new(&ops, line) {
+            stack.apply(op).unwrap();
+            for s in stack.as_slice() {
+                seen.insert(s.build_string());
+            }
+        }
+        for want in ["entity.name.type.class.supercollider", "constant.character.symbol.supercollider", "entity.name.function.method.supercollider", "constant.numeric.supercollider", "comment.line.double-slash.supercollider"] {
+            assert!(seen.iter().any(|s| s == want), "missing {want} in {seen:?}");
+        }
+    }
 
     #[test]
     fn scope_keyword_operator_gets_operator_not_keyword() {

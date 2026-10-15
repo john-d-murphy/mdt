@@ -25,7 +25,7 @@ Point `mdt` at a directory and you get a file tree, a fully rendered markdown pr
 - Headings (H1 through H6) with distinct color and weight
 - Bold, italic, and strikethrough text
 - Inline code with background highlighting
-- Fenced code blocks with syntax highlighting (powered by syntect)
+- Fenced code blocks with syntax highlighting (powered by syntect), SuperCollider included (` ```supercollider`, `sc`, `scd`, `sclang`); any `.sublime-syntax` dropped in `~/.config/mdt/syntaxes/` is loaded too
 - Code blocks rendered with box-drawing borders
 - Ordered and unordered lists with proper nesting
 - Hanging indents on wrapped list continuation lines

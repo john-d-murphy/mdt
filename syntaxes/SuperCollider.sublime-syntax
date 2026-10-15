@@ -1,0 +1,68 @@
+%YAML 1.2
+---
+# SuperCollider (sclang), for mdt's code fences: ```supercollider, ```sc, ```scd, ```sclang.
+# A small grammar — comments, strings, symbols, numbers, classes, keywords, environment
+# variables, method calls — in the scopes mdt colours (comment, string, constant, keyword,
+# entity.name.type, entity.name.function, variable). Not Sublime's full package.
+name: SuperCollider
+file_extensions: [sc, scd, sclang, supercollider]
+scope: source.supercollider
+contexts:
+  main:
+    - include: comments
+    - include: strings
+    - include: symbols
+    - include: numbers
+    - include: keywords
+    - include: classes
+    - include: envvars
+    - include: methods
+    - include: operators
+  comments:
+    - match: '//.*$'
+      scope: comment.line.double-slash.supercollider
+    - match: '/\*'
+      scope: punctuation.definition.comment.supercollider
+      push:
+        - meta_scope: comment.block.supercollider
+        - match: '\*/'
+          pop: true
+  strings:
+    - match: '"'
+      scope: punctuation.definition.string.begin.supercollider
+      push:
+        - meta_scope: string.quoted.double.supercollider
+        - match: '\\.'
+          scope: constant.character.escape.supercollider
+        - match: '"'
+          scope: punctuation.definition.string.end.supercollider
+          pop: true
+  symbols:
+    - match: "\\\\[A-Za-z_][A-Za-z0-9_]*"
+      scope: constant.character.symbol.supercollider
+    - match: "'[^']*'"
+      scope: constant.character.symbol.supercollider
+  numbers:
+    - match: '\b(?:0x[0-9A-Fa-f]+|\d+r[0-9A-Za-z]+|\d+(?:\.\d+)?(?:e[+-]?\d+)?)\b'
+      scope: constant.numeric.supercollider
+    - match: '\b(?:pi|inf|nil|true|false)\b'
+      scope: constant.language.supercollider
+  keywords:
+    - match: '\b(?:var|arg|classvar|const|this|super|thisThread|thisProcess|thisFunction|thisMethod|currentEnvironment|topEnvironment)\b'
+      scope: keyword.other.supercollider
+  classes:
+    - match: '\b[A-Z][A-Za-z0-9_]*\b'
+      scope: entity.name.type.class.supercollider
+  envvars:
+    - match: '~[A-Za-z_][A-Za-z0-9_]*'
+      scope: variable.other.environment.supercollider
+  methods:
+    - match: '(\.)([a-z_][A-Za-z0-9_]*)'
+      captures:
+        1: punctuation.accessor.supercollider
+        2: entity.name.function.method.supercollider
+    - match: '\b([a-z_][A-Za-z0-9_]*)(?=\s*\()'
+      scope: entity.name.function.supercollider
+  operators:
+    - match: '(?:<>|\+\+|!=|==|<=|>=|&&|\|\||[-+*/%<>=!&|^@?]|<!|\?|\?\?)'
+      scope: keyword.operator.supercollider
