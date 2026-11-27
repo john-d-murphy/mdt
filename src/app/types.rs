@@ -51,6 +51,8 @@ pub(crate) enum Overlay {
     FileFinder,
     /// One image, large, zoomable — opened by clicking it in the preview.
     ImageViewer,
+    /// A box to say something about the page, which `--note-command` then acts on.
+    NoteInput,
 }
 
 /// Split orientation for live preview alongside editor.

@@ -55,6 +55,12 @@ struct Cli {
     /// Centre the text in the pane, where --max-width leaves room (also `MDT_CENTER=1`)
     #[arg(long, env = "MDT_CENTER")]
     center: bool,
+
+    /// Shell command a right-click makes a note with; it is given MDT_NOTE_COMMENT,
+    /// MDT_NOTE_SELECTION, MDT_NOTE_REF, MDT_NOTE_FILE and MDT_NOTE_LINE in its environment
+    /// (also `MDT_NOTE_COMMAND`)
+    #[arg(long, env = "MDT_NOTE_COMMAND")]
+    note_command: Option<String>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -114,12 +120,14 @@ fn main() -> anyhow::Result<()> {
         app.max_file_size = cli.max_file_size;
         app.max_width = cli.max_width.map(usize::from);
         app.center = cli.center;
+        app.note_command.clone_from(&cli.note_command);
         (app, None, None, None, None)
     } else {
         let mut app = App::new(&path, bg_color)?;
         app.max_file_size = cli.max_file_size;
         app.max_width = cli.max_width.map(usize::from);
         app.center = cli.center;
+        app.note_command.clone_from(&cli.note_command);
 
         // Acquire an advisory lock to prevent concurrent mdt instances on the same directory.
         // The lock lives in the per-user runtime directory, never inside the tree being
@@ -252,6 +260,17 @@ fn run_loop(
             }
         }
 
+        // The note box asked for an editor: hand the terminal to the note command, which
+        // opens one of its own, then take it back.
+        if std::mem::take(&mut app.note_in_editor) {
+            release_terminal(terminal)?;
+            app.run_note_in_editor();
+            reclaim_terminal(terminal)?;
+            // The alternate screen is new, so the terminal is holding no pictures now.
+            app.images.forget_encodings();
+            needs_redraw = true;
+        }
+
         // A picture finished being read in the background — show it.
         if app.images.take_decoded() {
             needs_redraw = true;
@@ -327,4 +346,21 @@ fn reattach_stdin_to_tty() {
             libc::dup2(tty.as_raw_fd(), libc::STDIN_FILENO);
         }
     }
+}
+
+/// Give the terminal back to whatever is run next: out of the alternate screen, out of raw
+/// mode, mouse reporting off. A note command run from here may want to open an editor, and
+/// an editor needs the terminal to itself.
+fn release_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> anyhow::Result<()> {
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+    Ok(())
+}
+
+/// Take it back and redraw from nothing: the screen that comes back is a new one.
+fn reclaim_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> anyhow::Result<()> {
+    enable_raw_mode()?;
+    execute!(terminal.backend_mut(), EnterAlternateScreen, EnableMouseCapture)?;
+    terminal.clear()?;
+    Ok(())
 }

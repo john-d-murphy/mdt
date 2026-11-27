@@ -74,6 +74,10 @@ impl App {
                         }
                         return;
                     }
+                    Overlay::NoteInput => {
+                        self.handle_note_key(key);
+                        return;
+                    }
                     Overlay::ImageViewer => {
                         self.handle_image_viewer_key(key);
                         return;

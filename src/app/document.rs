@@ -5,7 +5,10 @@ use std::path::PathBuf;
 
 use ratatui::text::Line;
 use tui_tree_widget::{TreeItem, TreeState};
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 
+use crate::app::SelectionState;
 use crate::markdown::{LinkInfo, RenderedBlock};
 
 /// File tree view state.
@@ -15,6 +18,27 @@ pub(crate) struct TreeViewState {
     pub(crate) path_map: HashMap<String, (PathBuf, bool)>,
     pub(crate) filtered_tree_items: Option<Vec<TreeItem<'static, String>>>,
     pub(crate) filtered_path_map: Option<HashMap<String, (PathBuf, bool)>>,
+}
+
+/// The part of `text` lying in display columns `from..to`.
+fn columns(text: &str, from: usize, to: usize) -> &str {
+    let mut start = None;
+    let mut end = text.len();
+    let mut col = 0;
+    for (offset, grapheme) in text.grapheme_indices(true) {
+        if col >= from && start.is_none() {
+            start = Some(offset);
+        }
+        if col >= to {
+            end = offset;
+            break;
+        }
+        col += UnicodeWidthStr::width(grapheme);
+    }
+    match start {
+        Some(start) if start <= end => &text[start..end],
+        _ => "",
+    }
 }
 
 /// Current document / preview state.
@@ -100,6 +124,27 @@ impl DocumentState {
         if self.scroll_offset > max {
             self.scroll_offset = max;
         }
+    }
+
+    /// The text of the selection, as it reads on screen — markdown syntax already stripped,
+    /// one line per rendered line. `None` when nothing is selected, or only blank space is.
+    pub(crate) fn selected_text(&self, selection: &SelectionState) -> Option<String> {
+        let ((first_line, first_col), (last_line, last_col)) = selection.range()?;
+        let last_line = last_line.min(self.rendered_lines.len().saturating_sub(1));
+
+        let mut out = String::new();
+        for index in first_line..=last_line {
+            let line = self.rendered_lines.get(index)?;
+            let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+            let from = if index == first_line { first_col } else { 0 };
+            let to = if index == last_line { last_col } else { usize::MAX };
+            if index > first_line {
+                out.push('\n');
+            }
+            out.push_str(columns(&text, from, to).trim_end());
+        }
+        let out = out.trim_matches('\n').to_string();
+        (!out.trim().is_empty()).then_some(out)
     }
 
     /// Every local image in the document, in order: its file and the rendered line it starts

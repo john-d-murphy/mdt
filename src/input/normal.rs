@@ -176,6 +176,7 @@ impl App {
             KeyCode::Char('n') => self.next_search_match(),
             KeyCode::Char('N') => self.prev_search_match(),
             KeyCode::Esc => {
+                self.selection.clear();
                 // Clear active search results
                 self.clear_search();
             }

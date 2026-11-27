@@ -68,3 +68,51 @@ pub(crate) struct LivePreviewState {
     /// Estimated editor viewport scroll top (tracks when editor actually scrolls).
     pub(crate) estimated_scroll_top: usize,
 }
+
+/// Text selected by dragging over the preview, in document coordinates: a rendered line
+/// index and a display column. Nothing is put on the clipboard — a selection is there to be
+/// read, and to be handed to whatever a note is made with.
+#[derive(Default)]
+pub(crate) struct SelectionState {
+    /// Where the drag started.
+    anchor: Option<(usize, usize)>,
+    /// Where the pointer is now.
+    head: Option<(usize, usize)>,
+    /// Whether the pointer has moved since the button went down. A click that never moved
+    /// opens a link or an image instead of selecting anything.
+    dragged: bool,
+}
+
+impl SelectionState {
+    /// The button went down at `line`, `col`: the start of a selection, or of a click.
+    pub(crate) fn press(&mut self, line: usize, col: usize) {
+        self.anchor = Some((line, col));
+        self.head = None;
+        self.dragged = false;
+    }
+
+    /// The pointer moved with the button down.
+    pub(crate) fn drag(&mut self, line: usize, col: usize) {
+        if self.anchor.is_some() {
+            self.head = Some((line, col));
+            self.dragged = true;
+        }
+    }
+
+    /// Whether the last press turned into a drag rather than a click.
+    pub(crate) fn dragged(&self) -> bool {
+        self.dragged
+    }
+
+    pub(crate) fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    /// The selected span as `((line, column), (line, column))`, the first before the second
+    /// and the second one past the last selected cell. `None` when nothing is selected.
+    pub(crate) fn range(&self) -> Option<((usize, usize), (usize, usize))> {
+        let (anchor, head) = (self.anchor?, self.head?);
+        let (first, last) = if anchor <= head { (anchor, head) } else { (head, anchor) };
+        Some((first, (last.0, last.1 + 1)))
+    }
+}

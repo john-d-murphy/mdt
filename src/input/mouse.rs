@@ -47,16 +47,51 @@ impl App {
                     }
                 }
             }
+            // A press starts either a selection or a click; which it was is only known
+            // when the button comes back up.
             MouseEventKind::Down(MouseButton::Left) => {
                 if self.is_in_preview(mouse.column, mouse.row) {
                     self.focus = Focus::Preview;
-                    self.click_preview(mouse.column, mouse.row);
+                    self.selection.clear();
+                    if let Some((line, col)) = self.preview_cell(mouse.column, mouse.row) {
+                        self.selection.press(line, col);
+                    }
                 } else if self.is_in_file_list(mouse.column, mouse.row) {
                     self.focus = Focus::FileList;
                 }
             }
+            // Right-click: say something about what is being read.
+            MouseEventKind::Down(MouseButton::Right) => {
+                if let Some((line, _)) = self.preview_cell(mouse.column, mouse.row) {
+                    self.focus = Focus::Preview;
+                    self.start_note(line);
+                }
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                if let Some((line, col)) = self.preview_cell(mouse.column, mouse.row) {
+                    self.selection.drag(line, col);
+                }
+            }
+            // A press that never moved is a click: open what is under it.
+            MouseEventKind::Up(MouseButton::Left)
+                if !self.selection.dragged() && self.is_in_preview(mouse.column, mouse.row) =>
+            {
+                self.selection.clear();
+                self.click_preview(mouse.column, mouse.row);
+            }
             _ => {}
         }
+    }
+
+    /// Which rendered line and display column a terminal cell is, if it is in the preview's
+    /// text at all.
+    fn preview_cell(&self, col: u16, row: u16) -> Option<(usize, usize)> {
+        let text = self.preview_text_area?;
+        if col < text.x || row < text.y || col >= text.right() || row >= text.bottom() {
+            return None;
+        }
+        let line = self.document.scroll_offset + usize::from(row - text.y);
+        Some((line, usize::from(col - text.x)))
     }
 
     /// Act on a left click in the preview pane: an image opens in the viewer, a link opens
@@ -98,6 +133,20 @@ mod tests {
 
     fn mouse_event(kind: MouseEventKind, col: u16, row: u16) -> MouseEvent {
         MouseEvent { kind, column: col, row, modifiers: crossterm::event::KeyModifiers::NONE }
+    }
+
+    /// A whole click — press then release, as a terminal sends them. What is under it opens
+    /// on the release, since until then the press might turn out to be a drag.
+    fn click(app: &mut App, col: u16, row: u16) {
+        app.handle_mouse(mouse_event(MouseEventKind::Down(MouseButton::Left), col, row));
+        app.handle_mouse(mouse_event(MouseEventKind::Up(MouseButton::Left), col, row));
+    }
+
+    /// A drag from one cell to another.
+    fn drag(app: &mut App, from: (u16, u16), to: (u16, u16)) {
+        app.handle_mouse(mouse_event(MouseEventKind::Down(MouseButton::Left), from.0, from.1));
+        app.handle_mouse(mouse_event(MouseEventKind::Drag(MouseButton::Left), to.0, to.1));
+        app.handle_mouse(mouse_event(MouseEventKind::Up(MouseButton::Left), to.0, to.1));
     }
 
     fn setup_app_with_areas() -> (TempTestDir, App) {
@@ -148,7 +197,7 @@ mod tests {
             "the docs",
         );
         // Content starts at x = 30 + 2 (left padding), y = 0 + 1 (top padding).
-        app.handle_mouse(mouse_event(MouseEventKind::Down(MouseButton::Left), 32 + col + 3, 1));
+        click(&mut app, 32 + col + 3, 1);
         assert_eq!(app.status_message, "Opening: https://example.com/docs");
         assert_eq!(app.focus, Focus::Preview);
     }
@@ -161,7 +210,7 @@ mod tests {
             "See",
         );
         app.status_message.clear();
-        app.handle_mouse(mouse_event(MouseEventKind::Down(MouseButton::Left), 32 + col, 1));
+        click(&mut app, 32 + col, 1);
         assert_eq!(app.status_message, "");
     }
 
@@ -173,7 +222,7 @@ mod tests {
             "https://www",
         );
         assert_eq!(app.document.links[0].display_text, "example.com/path");
-        app.handle_mouse(mouse_event(MouseEventKind::Down(MouseButton::Left), 32 + col + 5, 1));
+        click(&mut app, 32 + col + 5, 1);
         assert_eq!(app.status_message, "Opening: https://www.example.com/path/");
     }
 
@@ -189,7 +238,7 @@ mod tests {
             .position(|l| l.spans.iter().any(|s| s.content.contains("last")))
             .unwrap();
         app.document.scroll_offset = link_line; // link now on the first visible row
-        app.handle_mouse(mouse_event(MouseEventKind::Down(MouseButton::Left), 32 + 1, 1));
+        click(&mut app, 32 + 1, 1);
         assert_eq!(app.status_message, "Opening: https://example.com/last");
     }
 
@@ -212,8 +261,46 @@ mod tests {
         let text = app.preview_text_area.expect("the text area was recorded");
         assert!(text.x > 2, "the text is pushed in from the left: {text:?}");
 
-        app.handle_mouse(mouse_event(MouseEventKind::Down(MouseButton::Left), text.x + 2, text.y));
+        click(&mut app, text.x + 2, text.y);
         assert_eq!(app.status_message, "Opening: https://example.com/docs");
+    }
+
+    #[test]
+    fn dragging_selects_the_text_it_was_dragged_over() {
+        let (_dir, mut app, col) = setup_with_link(
+            "mdt-test-mouse-drag",
+            "The room has a resonance near 110 Hz.\n",
+            "resonance",
+        );
+        // Columns are counted from the text's own left edge.
+        let x = 32 + col;
+        drag(&mut app, (x, 1), (x + 8, 1));
+        assert_eq!(app.document.selected_text(&app.selection).as_deref(), Some("resonance"));
+    }
+
+    #[test]
+    fn a_drag_beginning_on_a_link_selects_instead_of_opening_it() {
+        let (_dir, mut app, col) = setup_with_link(
+            "mdt-test-mouse-drag-link",
+            "See [the docs](https://example.com/docs) now.\n",
+            "the docs",
+        );
+        app.status_message.clear();
+        drag(&mut app, (32 + col, 1), (32 + col + 7, 1));
+        assert_eq!(app.status_message, "", "the link stayed shut");
+        assert_eq!(app.document.selected_text(&app.selection).as_deref(), Some("the docs"));
+    }
+
+    #[test]
+    fn a_selection_spans_the_lines_it_covers() {
+        let (_dir, mut app, _) =
+            setup_with_link("mdt-test-mouse-drag-lines", "alpha\n\nbeta\n\ngamma\n", "alpha");
+        // Three paragraphs: rendered lines 0, 2, 4 with blanks between.
+        drag(&mut app, (32 + 2, 1), (32 + 3, 5));
+        assert_eq!(
+            app.document.selected_text(&app.selection).as_deref(),
+            Some("pha\n\nbeta\n\ngamm")
+        );
     }
 
     #[test]
@@ -225,7 +312,7 @@ mod tests {
         );
         app.status_message.clear();
         // Row 0 is the top padding row, above the first rendered line.
-        app.handle_mouse(mouse_event(MouseEventKind::Down(MouseButton::Left), 32 + col, 0));
+        click(&mut app, 32 + col, 0);
         assert_eq!(app.status_message, "");
     }
 

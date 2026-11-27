@@ -9,6 +9,7 @@ mdt is configured through command-line flags and environment variables. There is
 
 ```bash
 mdt [path] [--max-file-size <bytes>] [--max-width <columns>] [--center] [--no-images]
+    [--note-command <cmd>]
 ```
 
 If no path is given, mdt opens the current directory. You can pass a directory to browse or a specific file to open directly. When given a file, mdt opens it immediately, roots the file tree at the file's directory, and selects the file in the tree.
@@ -39,6 +40,7 @@ In stdin mode, mdt operates in read-only preview mode. The file tree, file finde
 | `--max-width <columns>`   | Maximum width in columns for rendered markdown | none (terminal width) |
 | `--no-images`             | Never draw images; `![alt](src)` shows as `[image: alt]` | images on |
 | `--center`                | Centre the text in the pane, where `--max-width` leaves room | text to the left |
+| `--note-command <cmd>`    | Shell command a right-click makes a note with | no notes |
 
 For example, to allow opening files up to 10 MB:
 
@@ -94,6 +96,14 @@ Set to `1` to start with the text centred, as if `--center` were given.
 export MDT_CENTER=1
 ```
 
+### `MDT_NOTE_COMMAND`
+
+Sets the default for `--note-command`.
+
+```bash
+export MDT_NOTE_COMMAND=~/bin/my-note-script
+```
+
 ### `MDT_NO_IMAGES`
 
 Set to `1` to start with images off, as if `--no-images` were given.
@@ -121,8 +131,46 @@ mdt supports mouse input out of the box:
 - **Click** to switch focus between panes
 - **Click a link** in the preview to open it with your system handler
 - **Click an image** in the preview to open it large in a zoomable viewer
+- **Drag** over the preview to select text; `esc` clears it. Nothing goes to the clipboard — a selection is there to be read, and to be quoted in a note. Your terminal's own selection (shift-drag, in kitty) still works for copying
+- **Right-click** the preview to make a note about the page, when `--note-command` is set
 
 No configuration is needed; mouse support is enabled automatically.
+
+### Taking notes
+
+Drag over the text to select some of it, then right-click to open a box. A note can be the passage you selected, something you typed, or both — so with a selection in hand, `Ctrl+d` on an empty box notes the passage alone. The comment wraps and takes as many lines as it needs, and Enter starts another line, so a note can be a few sentences rather than one.
+
+| Key | Action |
+| --- | ------ |
+| `Ctrl+d` | Make the note |
+| `Ctrl+e` | Hand the terminal to the note command so that it can open an editor. mdt leaves the alternate screen while the command has the terminal and takes it back afterwards |
+| `esc` | Abandon it |
+
+mdt runs `--note-command` through your shell. A line the command writes to `$MDT_NOTE_RESULT` goes in the status bar — so a command that reports the new note's name will say so, and one that fails says why. Printing the line works too, but only for `Ctrl+d`: with the terminal handed over, anything printed is about to be drawn over by mdt taking the screen back.
+
+mdt knows nothing about where notes go. The command is given what mdt does know, in its environment:
+
+| Variable | What it is |
+| -------- | ---------- |
+| `MDT_NOTE_COMMENT` | What you typed into the box |
+| `MDT_NOTE_SELECTION` | The text you dragged over, if any |
+| `MDT_NOTE_REF` | The page's own id, where the page says what it is |
+| `MDT_NOTE_FILE` | The file being read; empty when it came down a pipe |
+| `MDT_NOTE_LINE` | The line that was right-clicked |
+| `MDT_NOTE_EDIT` | `1` when mdt has handed over the terminal (`Ctrl+e`), so the command may open an editor; unset otherwise |
+| `MDT_NOTE_RESULT` | A file to write one line into, for the status bar |
+
+`MDT_NOTE_REF` comes from the metadata line a [quine](https://github.com/indeterminacy/homunculus) page carries under its title:
+
+```markdown
+# Why the room is the instrument
+
+`essay` · 2025-09-21 · `room0`
+```
+
+The last backticked word there is the page's id. It is read from the page rather than the file, so it works for a page piped in from `quine read`, which has no file of its own. A page without that line leaves it empty, and the note has nothing to attach to.
+
+The repository's `examples/quine-note.sh` is a working command for quine: the selected passage opens the note and the comment follows it, since `quine new` takes a note's title from the start of its body, so a note made of a passage is titled by it; then the note is linked back to the page with `informed-by`, with the comment as the edge's prose. With `MDT_NOTE_EDIT` set it opens the new note in `$VISUAL`/`$EDITOR` — the real file, front matter and all, the same thing `n -e` gives. It does that itself rather than through `quine new -e`, because the body is piped in and the note's path is read back from stdout, which would leave an editor with neither to work with; the editor is pointed at `/dev/tty` so that it has the terminal whatever the script's own stdio is.
 
 ### Background color detection
 
